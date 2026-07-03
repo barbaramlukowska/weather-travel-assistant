@@ -5,7 +5,7 @@ calls a **live weather tool** when you ask about conditions anywhere in the worl
 Built to explore real LLM integration patterns — streaming, function calling, and
 the UX around them.
 
-**🔗 Live demo:** _coming soon (deployed on Vercel)_
+**🔗 Live demo:** https://weather-travel-assistant.vercel.app/
 
 <!-- TODO: add a GIF showing a live streamed answer + the weather card -->
 ![Screenshot of Aura Travel](./docs/screenshot.png)
@@ -26,7 +26,7 @@ the UX around them.
 
 - **[Next.js](https://nextjs.org) (App Router)** + **TypeScript**
 - **[Vercel AI SDK](https://ai-sdk.dev)** — `streamText`, `useChat`, tool calling
-- **[Google Gemini](https://ai.google.dev)** (`gemini-2.5-flash-lite`) via `@ai-sdk/google`
+- **[Google Gemini](https://ai.google.dev)** (`gemini-2.5-flash`) via `@ai-sdk/google`
 - **[Open-Meteo](https://open-meteo.com)** — free weather + geocoding APIs (no key)
 - **[Tailwind CSS](https://tailwindcss.com) v4** + **[lucide-react](https://lucide.dev)** icons
 - **[Zod](https://zod.dev)** — schema for the tool's input
@@ -66,8 +66,10 @@ npm run dev
 Open [http://localhost:3000](http://localhost:3000) and ask, e.g., _"What's the
 weather in Kraków?"_
 
-> **Note:** the free Gemini tier has a per-minute request limit. If you send many
-> messages quickly you may briefly see an error — just wait a moment and retry.
+> **Note:** the free Gemini tier caps how many requests you can make per day (and
+> each weather question uses two: one to call the tool, one to answer from the
+> result). If you hit the cap, the app shows a friendly message and the quota
+> resets within 24 hours.
 
 ## Project structure
 

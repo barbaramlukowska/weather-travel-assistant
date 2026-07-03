@@ -7,11 +7,13 @@ import {
   convertToModelMessages,
   createUIMessageStreamResponse,
   toUIMessageStream,
+  APICallError,
+  RetryError,
   type UIMessage,
 } from 'ai';
 import { z } from 'zod';
+import { RATE_LIMIT_MESSAGE } from '@/lib/errors';
 
-// Allow the streamed response to run for up to 30 seconds.
 export const maxDuration = 30;
 
 const getWeather = tool({
@@ -19,31 +21,31 @@ const getWeather = tool({
     'Get the current weather for a city. Use whenever the user asks about ' +
     'weather, temperature, or what to pack for a trip to a place.',
   inputSchema: z.object({
-    city: z.string().describe('City name, e.g. "Krakow" or "Tokyo"'),
+    city: z
+      .string()
+      .describe('City name in English, e.g. "Vienna" (not "Wiedeń"), "Tokyo"'),
   }),
   execute: async ({ city }) => {
     try {
-      // Step 1 — Geocoding: turn the city name into coordinates.
       const geoRes = await fetch(
         `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
           city,
         )}&count=1&language=en&format=json`,
       );
-      // A non-2xx status (e.g. 429 rate limit, 5xx) is a technical failure,
-      // NOT "city not found". Fail loudly so it isn't mistaken for the latter.
+      // A failed request is a technical error, not "city not found" —
+      // fail loudly so the two aren't confused.
       if (!geoRes.ok) {
         throw new Error(`Geocoding request failed with status ${geoRes.status}`);
       }
       const geo = await geoRes.json();
 
-      // The city genuinely was not found — a semantic result the model explains.
+      // Genuinely not found — a semantic result for the model to explain.
       if (!geo.results || geo.results.length === 0) {
         return { found: false, city };
       }
 
       const { latitude, longitude, name, country } = geo.results[0];
 
-      // Step 2 — Forecast: get current conditions for those coordinates.
       const wRes = await fetch(
         `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
           `&current=temperature_2m,apparent_temperature,precipitation,wind_speed_10m`,
@@ -66,30 +68,37 @@ const getWeather = tool({
         },
       };
     } catch (err) {
-      // Network error or upstream failure. Log the detail server-side for
-      // debugging, but re-throw a clean, generic message so no internals leak
-      // to the client. The AI SDK turns this into an 'output-error' tool state,
-      // which the UI already renders as "Weather lookup failed".
+      // Log the real error server-side, but re-throw a clean message so no
+      // internals leak. The SDK surfaces this as an 'output-error' tool state.
       console.error('getWeather failed:', err);
       throw new Error('Weather service unavailable');
     }
   },
 });
 
-// Validate the request body at the trust boundary. We only assert the
-// top-level contract we depend on (a non-empty `messages` array) instead of
-// re-describing the whole UIMessage shape, which the AI SDK owns and
-// convertToModelMessages validates further downstream.
+// The SDK masks streaming errors as "An error occurred." so internals never
+// leak. We override that only for the free-tier daily quota (HTTP 429), which
+// is worth explaining. The failing model call is wrapped in retries, so the
+// error is usually a RetryError — unwrap it to read the real status code.
+function toClientErrorMessage(error: unknown): string {
+  const apiError = RetryError.isInstance(error) ? error.lastError : error;
+
+  if (APICallError.isInstance(apiError) && apiError.statusCode === 429) {
+    return RATE_LIMIT_MESSAGE;
+  }
+
+  console.error('Chat stream error:', error);
+  return 'An error occurred.';
+}
+
+// Validate at the trust boundary, but only the contract we depend on (a
+// non-empty messages array) — the AI SDK owns and validates the rest.
 const requestSchema = z.object({
   messages: z.array(z.unknown()).min(1),
 });
 
-// This function handles POST requests to /api/chat.
-// The folder path (app/api/chat/) becomes the URL — no routing config needed.
 export async function POST(req: Request) {
-  // The browser sends the full conversation so far. Each message is a
-  // "UIMessage" (has an id, a role, and a list of parts). Parse defensively:
-  // a malformed or non-JSON body must not crash the route.
+  // Parse defensively: a malformed or non-JSON body must not crash the route.
   let body: unknown;
   try {
     body = await req.json();
@@ -107,37 +116,30 @@ export async function POST(req: Request) {
 
   const messages = parsed.data.messages as UIMessage[];
 
-  // Ask the model to answer. streamText returns immediately with a handle
-  // to a stream — it does NOT wait for the whole answer.
   const result = streamText({
-    // gemini-2.5-flash-lite: fast, higher free-tier limits. Accuracy for
-    // weather comes from the getWeather tool, not the model's knowledge.
-    model: google('gemini-2.5-flash-lite'),
-    // The system prompt gives the model its role and tells it when to reach
-    // for the weather tool.
+    // Accuracy comes from the getWeather tool, not the model's own knowledge,
+    // so a small, fast model is enough for correct weather.
+    model: google('gemini-2.5-flash'),
     system:
       'You are a friendly travel assistant. When the user asks about the ' +
       'weather, the temperature, or what to pack for a trip, use the ' +
-      'getWeather tool to fetch real data instead of guessing. If a city ' +
-      'cannot be found, say so plainly. Keep answers concise and helpful.',
-    // convertToModelMessages turns the UI-shaped messages into the shape
-    // the model expects.
+      'getWeather tool to fetch real data instead of guessing. Always pass the ' +
+      "city name to getWeather in English (e.g. 'Vienna', not 'Wiedeń') so the " +
+      'geocoder resolves the right place. If a city cannot be found, say so ' +
+      'plainly. Keep answers concise and helpful.',
     messages: await convertToModelMessages(messages),
-    // Make the weather tool available to the model.
     tools: { getWeather },
-    // The agent loop. Without this, streamText stops after 1 step — the model
-    // would call the tool but never write the final answer. stepCountIs(5)
-    // lets it continue: model -> tool call -> result -> model finishes.
+    // The agent loop: without this the model calls the tool but never writes
+    // the final answer.
     stopWhen: stepCountIs(5),
-    // The model sends text in large chunks. smoothStream re-emits it word by
-    // word with a small delay, so the UI feels like a smooth "typewriter"
-    // instead of text appearing in blocks.
+    // Re-emit the reply word by word so the UI feels like a smooth typewriter.
     experimental_transform: smoothStream({ delayInMs: 30, chunking: 'word' }),
   });
 
-  // Pipe the model's stream back to the browser in a format that the
-  // useChat hook on the client understands.
   return createUIMessageStreamResponse({
-    stream: toUIMessageStream({ stream: result.stream }),
+    stream: toUIMessageStream({
+      stream: result.stream,
+      onError: toClientErrorMessage,
+    }),
   });
 }

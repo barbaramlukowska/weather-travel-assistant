@@ -1,6 +1,5 @@
 import { Moon, Sparkles, Sun } from 'lucide-react';
 
-// The app header: brand mark, title, and the light/dark toggle.
 interface ChatHeaderProps {
   isDark: boolean;
   onToggleTheme: () => void;

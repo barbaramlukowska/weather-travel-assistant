@@ -8,7 +8,6 @@ import {
 } from 'lucide-react';
 import type { WeatherOutput } from './types';
 
-// One metric cell inside the weather card.
 interface StatProps {
   icon: LucideIcon;
   label: string;
@@ -29,7 +28,6 @@ function Stat({ icon: Icon, label, value }: StatProps) {
   );
 }
 
-// The rich weather card, rendered from real Open-Meteo data.
 interface WeatherCardProps {
   data: Extract<WeatherOutput, { found: true }>;
 }

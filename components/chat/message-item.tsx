@@ -4,7 +4,6 @@ import type { UIMessage } from 'ai';
 import type { WeatherToolPart } from './types';
 import { WeatherCard } from './weather-card';
 
-// Small rounded chip used for the tool status and errors.
 interface ChipProps {
   icon: LucideIcon;
   children: ReactNode;
@@ -26,8 +25,6 @@ function Chip({ icon: Icon, children, variant = 'active' }: ChipProps) {
   );
 }
 
-// Renders one conversation message: text parts as bubbles, and any getWeather
-// tool parts as a status chip, weather card, or error chip.
 interface MessageItemProps {
   message: UIMessage;
 }
@@ -42,7 +39,6 @@ export function MessageItem({ message }: MessageItemProps) {
       }
     >
       {message.parts.map((part, i) => {
-        // Normal text.
         if (part.type === 'text') {
           return (
             <div
@@ -58,7 +54,6 @@ export function MessageItem({ message }: MessageItemProps) {
           );
         }
 
-        // Weather tool states.
         if (part.type.startsWith('tool-')) {
           const call = part as unknown as WeatherToolPart;
           const city = call.input?.city ?? '…';

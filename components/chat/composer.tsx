@@ -1,6 +1,5 @@
 import { ArrowUp, Square } from 'lucide-react';
 
-// The bottom input row. Shows a Send button, or a Stop button while busy.
 interface ComposerProps {
   input: string;
   isBusy: boolean;

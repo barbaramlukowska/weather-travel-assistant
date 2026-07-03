@@ -15,9 +15,6 @@ function getThemeServerSnapshot() {
   return false;
 }
 
-// Reads the current theme (external state) and returns a toggle that flips the
-// class on <html> and persists the choice. Kept as a hook so the component tree
-// only sees { isDark, toggleTheme }.
 export function useTheme() {
   const isDark = useSyncExternalStore(
     subscribeTheme,

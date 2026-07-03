@@ -14,7 +14,6 @@ export function Chat() {
   const isBusy = status === 'submitted' || status === 'streaming';
   const { isDark, toggleTheme } = useTheme();
 
-  // Auto-scroll to the newest message.
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -40,7 +39,9 @@ export function Chat() {
 
           {status === 'submitted' && <ThinkingIndicator />}
 
-          {error && <ErrorBanner onRetry={() => regenerate()} />}
+          {error && (
+            <ErrorBanner message={error.message} onRetry={() => regenerate()} />
+          )}
 
           <div ref={endRef} />
         </div>
