@@ -22,49 +22,90 @@ const getWeather = tool({
     city: z.string().describe('City name, e.g. "Krakow" or "Tokyo"'),
   }),
   execute: async ({ city }) => {
-    // Step 1 — Geocoding: turn the city name into coordinates.
-    const geoRes = await fetch(
-      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
-        city,
-      )}&count=1&language=en&format=json`,
-    );
-    const geo = await geoRes.json();
+    try {
+      // Step 1 — Geocoding: turn the city name into coordinates.
+      const geoRes = await fetch(
+        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
+          city,
+        )}&count=1&language=en&format=json`,
+      );
+      // A non-2xx status (e.g. 429 rate limit, 5xx) is a technical failure,
+      // NOT "city not found". Fail loudly so it isn't mistaken for the latter.
+      if (!geoRes.ok) {
+        throw new Error(`Geocoding request failed with status ${geoRes.status}`);
+      }
+      const geo = await geoRes.json();
 
-    // The city was not found — return a plain result the model can explain.
-    if (!geo.results || geo.results.length === 0) {
-      return { found: false, city };
+      // The city genuinely was not found — a semantic result the model explains.
+      if (!geo.results || geo.results.length === 0) {
+        return { found: false, city };
+      }
+
+      const { latitude, longitude, name, country } = geo.results[0];
+
+      // Step 2 — Forecast: get current conditions for those coordinates.
+      const wRes = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
+          `&current=temperature_2m,apparent_temperature,precipitation,wind_speed_10m`,
+      );
+      if (!wRes.ok) {
+        throw new Error(`Forecast request failed with status ${wRes.status}`);
+      }
+      const w = await wRes.json();
+
+      return {
+        found: true,
+        location: `${name}, ${country}`,
+        temperature: w.current.temperature_2m,
+        feelsLike: w.current.apparent_temperature,
+        precipitation: w.current.precipitation,
+        windSpeed: w.current.wind_speed_10m,
+        units: {
+          temperature: w.current_units.temperature_2m,
+          windSpeed: w.current_units.wind_speed_10m,
+        },
+      };
+    } catch (err) {
+      // Network error or upstream failure. Log the detail server-side for
+      // debugging, but re-throw a clean, generic message so no internals leak
+      // to the client. The AI SDK turns this into an 'output-error' tool state,
+      // which the UI already renders as "Weather lookup failed".
+      console.error('getWeather failed:', err);
+      throw new Error('Weather service unavailable');
     }
-
-    const { latitude, longitude, name, country } = geo.results[0];
-
-    // Step 2 — Forecast: get current conditions for those coordinates.
-    const wRes = await fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
-        `&current=temperature_2m,apparent_temperature,precipitation,wind_speed_10m`,
-    );
-    const w = await wRes.json();
-
-    return {
-      found: true,
-      location: `${name}, ${country}`,
-      temperature: w.current.temperature_2m,
-      feelsLike: w.current.apparent_temperature,
-      precipitation: w.current.precipitation,
-      windSpeed: w.current.wind_speed_10m,
-      units: {
-        temperature: w.current_units.temperature_2m,
-        windSpeed: w.current_units.wind_speed_10m,
-      },
-    };
   },
+});
+
+// Validate the request body at the trust boundary. We only assert the
+// top-level contract we depend on (a non-empty `messages` array) instead of
+// re-describing the whole UIMessage shape, which the AI SDK owns and
+// convertToModelMessages validates further downstream.
+const requestSchema = z.object({
+  messages: z.array(z.unknown()).min(1),
 });
 
 // This function handles POST requests to /api/chat.
 // The folder path (app/api/chat/) becomes the URL — no routing config needed.
 export async function POST(req: Request) {
   // The browser sends the full conversation so far. Each message is a
-  // "UIMessage" (has an id, a role, and a list of parts).
-  const { messages }: { messages: UIMessage[] } = await req.json();
+  // "UIMessage" (has an id, a role, and a list of parts). Parse defensively:
+  // a malformed or non-JSON body must not crash the route.
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
+
+  const parsed = requestSchema.safeParse(body);
+  if (!parsed.success) {
+    return Response.json(
+      { error: 'Invalid request: expected a non-empty "messages" array' },
+      { status: 400 },
+    );
+  }
+
+  const messages = parsed.data.messages as UIMessage[];
 
   // Ask the model to answer. streamText returns immediately with a handle
   // to a stream — it does NOT wait for the whole answer.
