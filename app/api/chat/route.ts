@@ -76,6 +76,45 @@ const getWeather = tool({
   },
 });
 
+const getCountryInfo = tool({
+  description:
+    'Get information about a country. Use whenever the user asks about ' +
+    'a country, its capital, population, or currency.',
+  inputSchema: z.object({
+    country: z
+      .string()
+      .describe('Country name in English, e.g. "Austria", "Japan"'),
+  }),
+  execute: async ({ country }) => {
+    try {
+      const res = await fetch(
+        `https://restcountries.com/v3.1/name/${encodeURIComponent(country)}?fullText=true`,
+      );
+      if (!res.ok && res.status === 404) {
+        return { found: false, country };
+      }
+      if (!res.ok) {
+        throw new Error(`Country info request failed with status ${res.status}`);
+      }
+      const data = await res.json();
+
+      const countryData = data[0];
+      return {
+        found: true,
+        name: countryData.name.common,
+        capital: countryData.capital ? countryData.capital[0] : 'N/A',
+        population: countryData.population,
+        currency: countryData.currencies
+          ? Object.keys(countryData.currencies)[0]
+          : 'N/A',
+      };
+    } catch (err) {
+      console.error('getCountryInfo failed:', err);
+      throw new Error('Country info service unavailable');
+    }
+  },
+});
+
 // The SDK masks streaming errors as "An error occurred." so internals never
 // leak. We override that only for the free-tier daily quota (HTTP 429), which
 // is worth explaining. The failing model call is wrapped in retries, so the
@@ -128,7 +167,7 @@ export async function POST(req: Request) {
       'geocoder resolves the right place. If a city cannot be found, say so ' +
       'plainly. Keep answers concise and helpful.',
     messages: await convertToModelMessages(messages),
-    tools: { getWeather },
+    tools: { getWeather, getCountryInfo },
     // The agent loop: without this the model calls the tool but never writes
     // the final answer.
     stopWhen: stepCountIs(5),
