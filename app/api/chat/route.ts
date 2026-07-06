@@ -1,4 +1,4 @@
-import { google } from '@ai-sdk/google';
+import { getChatModel } from '@/lib/model';
 import {
   streamText,
   smoothStream,
@@ -119,7 +119,7 @@ export async function POST(req: Request) {
   const result = streamText({
     // Accuracy comes from the getWeather tool, not the model's own knowledge,
     // so a small, fast model is enough for correct weather.
-    model: google('gemini-2.5-flash'),
+    model: getChatModel(),
     system:
       'You are a friendly travel assistant. When the user asks about the ' +
       'weather, the temperature, or what to pack for a trip, use the ' +
