@@ -1,16 +1,17 @@
-import { AlertCircle, CalendarDays, Cloud, Wind, type LucideIcon } from 'lucide-react';
+import {
+  AlertCircle,
+  CalendarDays,
+  Cloud,
+  Plane,
+  Wind,
+  type LucideIcon,
+} from 'lucide-react';
 import type { ReactNode } from 'react';
-import type { UIMessage } from 'ai';
-import type {
-  AirQualityOutput,
-  ForecastOutput,
-  ToolOutput,
-  ToolPart,
-  WeatherOutput,
-} from './types';
+import type { ChatTools, ChatUIMessage, ToolOutput, ToolPart } from './types';
 import { WeatherCard } from './weather-card';
 import { ForecastCard } from './forecast-card';
 import { AirQualityCard } from './air-quality-card';
+import { TripPlanCard } from './trip-plan-card';
 
 interface ChipProps {
   icon: LucideIcon;
@@ -83,8 +84,66 @@ function ToolCall<T extends ToolOutput>({
   return null;
 }
 
+// One entry per tool. The mapped type ties each renderCard to that tool's
+// real output type, and a tool without an entry is a compile error.
+interface ToolCardConfig<T extends ToolOutput> {
+  icon: LucideIcon;
+  loadingLabel: string;
+  errorLabel: string;
+  renderCard: (output: Extract<T, { found: true }>) => ReactNode;
+}
+
+const TOOL_CARDS: {
+  [N in keyof ChatTools]: ToolCardConfig<ChatTools[N]['output']>;
+} = {
+  getWeather: {
+    icon: Cloud,
+    loadingLabel: 'Checking weather in',
+    errorLabel: 'Weather lookup failed',
+    renderCard: (output) => <WeatherCard data={output} />,
+  },
+  getForecast: {
+    icon: CalendarDays,
+    loadingLabel: 'Fetching forecast for',
+    errorLabel: 'Forecast lookup failed',
+    renderCard: (output) => <ForecastCard data={output} />,
+  },
+  getAirQuality: {
+    icon: Wind,
+    loadingLabel: 'Checking air quality in',
+    errorLabel: 'Air quality lookup failed',
+    renderCard: (output) => <AirQualityCard data={output} />,
+  },
+  planTrip: {
+    icon: Plane,
+    loadingLabel: 'Planning a trip to',
+    errorLabel: 'Trip planning failed',
+    renderCard: (output) => <TripPlanCard data={output} />,
+  },
+};
+
+// The switch narrows part.type, so each ToolCall receives exactly its tool's
+// input/output types — no casts anywhere on this path.
+function renderToolPart(
+  part: ChatUIMessage['parts'][number],
+  key: number,
+): ReactNode {
+  switch (part.type) {
+    case 'tool-getWeather':
+      return <ToolCall key={key} part={part} {...TOOL_CARDS.getWeather} />;
+    case 'tool-getForecast':
+      return <ToolCall key={key} part={part} {...TOOL_CARDS.getForecast} />;
+    case 'tool-getAirQuality':
+      return <ToolCall key={key} part={part} {...TOOL_CARDS.getAirQuality} />;
+    case 'tool-planTrip':
+      return <ToolCall key={key} part={part} {...TOOL_CARDS.planTrip} />;
+    default:
+      return null;
+  }
+}
+
 interface MessageItemProps {
-  message: UIMessage;
+  message: ChatUIMessage;
 }
 
 export function MessageItem({ message }: MessageItemProps) {
@@ -112,47 +171,7 @@ export function MessageItem({ message }: MessageItemProps) {
           );
         }
 
-        // Each tool matches its own part type and hands ToolCall the card to
-        // render on success. The shared states (loading / not-found / error)
-        // live in ToolCall, so adding a tool is one small block.
-        if (part.type === 'tool-getWeather') {
-          return (
-            <ToolCall
-              key={i}
-              part={part as unknown as ToolPart<WeatherOutput>}
-              icon={Cloud}
-              loadingLabel="Checking weather in"
-              errorLabel="Weather lookup failed"
-              renderCard={(output) => <WeatherCard data={output} />}
-            />
-          );
-        }
-        if (part.type === 'tool-getForecast') {
-          return (
-            <ToolCall
-              key={i}
-              part={part as unknown as ToolPart<ForecastOutput>}
-              icon={CalendarDays}
-              loadingLabel="Fetching forecast for"
-              errorLabel="Forecast lookup failed"
-              renderCard={(output) => <ForecastCard data={output} />}
-            />
-          );
-        }
-        if (part.type === 'tool-getAirQuality') {
-          return (
-            <ToolCall
-              key={i}
-              part={part as unknown as ToolPart<AirQualityOutput>}
-              icon={Wind}
-              loadingLabel="Checking air quality in"
-              errorLabel="Air quality lookup failed"
-              renderCard={(output) => <AirQualityCard data={output} />}
-            />
-          );
-        }
-
-        return null;
+        return renderToolPart(part, i);
       })}
     </div>
   );

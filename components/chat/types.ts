@@ -1,53 +1,32 @@
-// The shapes our tools return (see app/api/chat/route.ts). Each is a
-// discriminated union on `found`, so the UI can narrow on it.
-export type WeatherOutput =
-  | {
-      found: true;
-      location: string;
-      temperature: number;
-      feelsLike: number;
-      precipitation: number;
-      windSpeed: number;
-      units: { temperature: string; windSpeed: string };
-    }
-  | { found: false; city: string };
-
-export type ForecastDay = {
-  date: string;
-  weekday: string;
-  maxTemp: number;
-  minTemp: number;
-  precipitationChance: number;
-  maxWindSpeed: number;
-};
-
-export type ForecastOutput =
-  | {
-      found: true;
-      location: string;
-      days: ForecastDay[];
-      units: { temperature: string; precipitationChance: string; windSpeed: string };
-    }
-  | { found: false; city: string };
-
-export type AirQualityOutput =
-  | {
-      found: true;
-      location: string;
-      usAqi: number;
-      pm25: number;
-      pm10: number;
-      europeanAqi: number;
-    }
-  | { found: false; city: string };
+// The tool output shapes live next to the tools (lib/tools.ts) — a single
+// source of truth shared by server and client. Type-only re-exports, so no
+// server code is bundled into the client.
+export type {
+  AirQualityOutput,
+  ChatTools,
+  ChatUIMessage,
+  ForecastDay,
+  ForecastOutput,
+  TripPlanOutput,
+  WeatherOutput,
+} from '@/lib/tools';
 
 // Every tool output shares the found/not-found discriminator, so one generic
 // part type covers all tools. The UI branches on `state`, then on `found`.
 export type ToolOutput = { found: true } | { found: false; city: string };
 
+// Structural view of the SDK's tool part — just the fields ToolCall reads.
+// The real (inferred) part types from ChatUIMessage are assignable to this,
+// so no casts are needed at the call sites.
 export type ToolPart<T extends ToolOutput> = {
-  toolCallId: string;
-  state: 'input-streaming' | 'input-available' | 'output-available' | 'output-error';
+  state:
+    | 'input-streaming'
+    | 'input-available'
+    | 'approval-requested'
+    | 'approval-responded'
+    | 'output-available'
+    | 'output-error'
+    | 'output-denied';
   input?: { city?: string };
   output?: T;
   errorText?: string;

@@ -5,10 +5,11 @@ const PRUNED_OUTPUT = { note: 'Older tool result omitted to save context.' };
 
 // Strip heavy tool outputs from all but the last `keepRecent` messages.
 // Only the copy sent to the model is pruned; the client keeps full history.
-export function pruneOldToolResults(
-  messages: UIMessage[],
+// Generic so callers with a tool-typed UIMessage keep their type.
+export function pruneOldToolResults<M extends UIMessage>(
+  messages: M[],
   keepRecent = 4,
-): UIMessage[] {
+): M[] {
   const cutoff = messages.length - keepRecent;
   if (cutoff <= 0) return messages;
 
@@ -21,6 +22,6 @@ export function pruneOldToolResults(
         : part,
     );
 
-    return { ...message, parts } as UIMessage;
+    return { ...message, parts } as M;
   });
 }

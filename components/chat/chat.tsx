@@ -2,6 +2,7 @@
 
 import { useChat } from '@ai-sdk/react';
 import { useEffect, useRef, useState } from 'react';
+import type { ChatUIMessage } from './types';
 import { ChatHeader } from './chat-header';
 import { Composer } from './composer';
 import { MessageItem } from './message-item';
@@ -10,7 +11,10 @@ import { useTheme } from './use-theme';
 
 export function Chat() {
   const [input, setInput] = useState('');
-  const { messages, sendMessage, status, stop, error, regenerate } = useChat();
+  // Typed messages: part types like 'tool-getWeather' now carry the real
+  // input/output types from lib/tools.ts all the way into MessageItem.
+  const { messages, sendMessage, status, stop, error, regenerate } =
+    useChat<ChatUIMessage>();
   const isBusy = status === 'submitted' || status === 'streaming';
   const { isDark, toggleTheme } = useTheme();
 
