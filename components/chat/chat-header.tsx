@@ -12,7 +12,12 @@ export function ChatHeader({ isDark, onToggleTheme }: ChatHeaderProps) {
         <div className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-primary">
           <Sparkles className="text-on-primary" size={20} />
         </div>
-        <h1 className="text-[17px] font-semibold tracking-tight">Aura Travel</h1>
+        <div className="flex flex-col">
+          <h1 className="text-[17px] font-semibold tracking-tight leading-tight">Aura Travel</h1>
+          <p className="text-[12px] text-on-surface-variant/60 leading-tight">
+            Weather, forecasts &amp; air quality — live data
+          </p>
+        </div>
         <button
           type="button"
           onClick={onToggleTheme}

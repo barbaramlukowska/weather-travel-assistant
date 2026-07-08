@@ -16,6 +16,35 @@ import { RATE_LIMIT_MESSAGE } from '@/lib/errors';
 
 export const maxDuration = 30;
 
+// Shared by every location-based tool (weather, air quality, …) so the
+// city-to-coordinates logic lives in exactly one place. A plain function,
+// not a tool() — the model never calls it directly.
+type GeocodeResult =
+  | { found: true; latitude: number; longitude: number; name: string; country: string }
+  | { found: false };
+
+async function geocodeCity(city: string): Promise<GeocodeResult> {
+  const res = await fetch(
+    `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
+      city,
+    )}&count=1&language=en&format=json`,
+  );
+  // A failed request is a technical error, not "city not found" —
+  // fail loudly so the two aren't confused. Callers' try/catch handles it.
+  if (!res.ok) {
+    throw new Error(`Geocoding request failed with status ${res.status}`);
+  }
+  const geo = await res.json();
+
+  // Genuinely not found — a semantic result for the model to explain.
+  if (!geo.results || geo.results.length === 0) {
+    return { found: false };
+  }
+
+  const { latitude, longitude, name, country } = geo.results[0];
+  return { found: true, latitude, longitude, name, country };
+}
+
 const getWeather = tool({
   description:
     'Get the current weather for a city. Use whenever the user asks about ' +
@@ -27,24 +56,14 @@ const getWeather = tool({
   }),
   execute: async ({ city }) => {
     try {
-      const geoRes = await fetch(
-        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
-          city,
-        )}&count=1&language=en&format=json`,
-      );
-      // A failed request is a technical error, not "city not found" —
-      // fail loudly so the two aren't confused.
-      if (!geoRes.ok) {
-        throw new Error(`Geocoding request failed with status ${geoRes.status}`);
-      }
-      const geo = await geoRes.json();
-
+      const geo = await geocodeCity(city);
       // Genuinely not found — a semantic result for the model to explain.
-      if (!geo.results || geo.results.length === 0) {
+      // The tool adds `city` here; the helper only reports found/not-found.
+      if (!geo.found) {
         return { found: false, city };
       }
 
-      const { latitude, longitude, name, country } = geo.results[0];
+      const { latitude, longitude, name, country } = geo;
 
       const wRes = await fetch(
         `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
@@ -76,41 +95,100 @@ const getWeather = tool({
   },
 });
 
-const getCountryInfo = tool({
+const getAirQuality = tool({
   description:
-    'Get information about a country. Use whenever the user asks about ' +
-    'a country, its capital, population, or currency.',
+    'Get the current air quality for a city. Use whenever the user asks about air quality, smog, pollution, or allergies.' + 'US AQI scale: 0–50 good, 51–100 moderate, 101–150 unhealthy for sensitive groups, 151+ unhealthy.',
   inputSchema: z.object({
-    country: z
+    city: z
       .string()
-      .describe('Country name in English, e.g. "Austria", "Japan"'),
+      .describe('City name in English, e.g. "Vienna" (not "Wiedeń"), "Tokyo"'),
   }),
-  execute: async ({ country }) => {
+  execute: async ({ city }) => {
     try {
-      const res = await fetch(
-        `https://restcountries.com/v3.1/name/${encodeURIComponent(country)}?fullText=true`,
-      );
-      if (!res.ok && res.status === 404) {
-        return { found: false, country };
+      const geo = await geocodeCity(city);
+      if (!geo.found) {
+        return { found: false, city };
       }
-      if (!res.ok) {
-        throw new Error(`Country info request failed with status ${res.status}`);
-      }
-      const data = await res.json();
 
-      const countryData = data[0];
+      const { latitude, longitude, name, country } = geo;
+      
+      const aqRes = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${latitude}&longitude=${longitude}&current=us_aqi,pm2_5,pm10,european_aqi`);
+      if (!aqRes.ok) {
+        throw new Error(`Air quality request failed with status ${aqRes.status}`);
+      }
+      const aq = await aqRes.json();
+
       return {
         found: true,
-        name: countryData.name.common,
-        capital: countryData.capital ? countryData.capital[0] : 'N/A',
-        population: countryData.population,
-        currency: countryData.currencies
-          ? Object.keys(countryData.currencies)[0]
-          : 'N/A',
+        location: `${name}, ${country}`,
+        usAqi: aq.current.us_aqi,
+        pm25: aq.current.pm2_5,
+        pm10: aq.current.pm10,
+        europeanAqi: aq.current.european_aqi,
       };
     } catch (err) {
-      console.error('getCountryInfo failed:', err);
-      throw new Error('Country info service unavailable');
+      console.error('getAirQuality failed:', err);
+      throw new Error('Air quality service unavailable');
+    }
+  },
+});
+
+const getForecast = tool({
+  description:
+    'Get the daily weather forecast for a city for the next few days. Use ' +
+    'whenever the user asks about FUTURE weather: tomorrow, the weekend, or ' +
+    'an upcoming trip. For current conditions use getWeather instead.',
+  inputSchema: z.object({
+    city: z
+      .string()
+      .describe('City name in English, e.g. "Vienna" (not "Wiedeń"), "Tokyo"'),
+  }),
+  // Always fetch a full week. Letting the model choose how many days meant it
+  // asked for too few (e.g. 3) and never reached the weekend it was asked about
+  // — a decision a small model gets wrong, so we make it in code instead.
+  execute: async ({ city }) => {
+    try {
+      const geo = await geocodeCity(city);
+      if (!geo.found) {
+        return { found: false, city };
+      }
+
+      const { latitude, longitude, name, country } = geo;
+
+      const fRes = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
+          `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max` +
+          `&forecast_days=7&timezone=auto`,
+      );
+      if (!fRes.ok) {
+        throw new Error(`Forecast request failed with status ${fRes.status}`);
+      }
+      const f = await fRes.json();
+
+      // Reshape parallel arrays ({time: [...], temperature_2m_max: [...]})
+      // into one object per day — much easier for the model to read.
+      const daily = f.daily.time.map((date: string, i: number) => ({
+        date,
+        maxTemp: f.daily.temperature_2m_max[i],
+        minTemp: f.daily.temperature_2m_min[i],
+        precipitationChance: f.daily.precipitation_probability_max[i],
+        maxWindSpeed: f.daily.wind_speed_10m_max[i],
+        weekday: new Date(date).toLocaleDateString('en-US', { weekday: 'long' }),
+      }));
+
+      return {
+        found: true,
+        location: `${name}, ${country}`,
+        days: daily,
+        units: {
+          temperature: f.daily_units.temperature_2m_max,
+          precipitationChance: f.daily_units.precipitation_probability_max,
+          windSpeed: f.daily_units.wind_speed_10m_max,
+        },
+      };
+    } catch (err) {
+      console.error('getForecast failed:', err);
+      throw new Error('Forecast service unavailable');
     }
   },
 });
@@ -160,14 +238,20 @@ export async function POST(req: Request) {
     // so a small, fast model is enough for correct weather.
     model: getChatModel(),
     system:
-      'You are a friendly travel assistant. When the user asks about the ' +
-      'weather, the temperature, or what to pack for a trip, use the ' +
-      'getWeather tool to fetch real data instead of guessing. Always pass the ' +
-      "city name to getWeather in English (e.g. 'Vienna', not 'Wiedeń') so the " +
-      'geocoder resolves the right place. If a city cannot be found, say so ' +
-      'plainly. Keep answers concise and helpful.',
+      `Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}. You are a friendly travel assistant. Use your tools to fetch real ` +
+      'data instead of guessing: getWeather for CURRENT conditions, ' +
+      'getForecast for FUTURE weather (tomorrow, the weekend, an upcoming ' +
+      'trip), and getAirQuality for air quality, smog, or pollution. Combine ' +
+      'several tools in one answer when the question needs it. Never present ' +
+      'current conditions as a forecast — if the user asks about the future, ' +
+      'call getForecast. Each forecast day includes a `weekday` field — use it ' +
+      'verbatim; never rename or recompute the day of the week yourself. ' +
+      'Always pass city names in English (e.g. ' +
+      "'Vienna', not 'Wiedeń') so the geocoder resolves the right place. If " +
+      'a city cannot be found, say so plainly. Keep answers concise and ' +
+      'helpful.',
     messages: await convertToModelMessages(messages),
-    tools: { getWeather, getCountryInfo },
+    tools: { getWeather, getForecast, getAirQuality },
     // The agent loop: without this the model calls the tool but never writes
     // the final answer.
     stopWhen: stepCountIs(5),

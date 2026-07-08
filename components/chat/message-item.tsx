@@ -54,7 +54,9 @@ export function MessageItem({ message }: MessageItemProps) {
           );
         }
 
-        if (part.type.startsWith('tool-')) {
+        // Match the weather tool exactly — other tools (air quality, …) have
+        // no card UI yet, so their parts must not be forced into WeatherCard.
+        if (part.type === 'tool-getWeather') {
           const call = part as unknown as WeatherToolPart;
           const city = call.input?.city ?? '…';
 

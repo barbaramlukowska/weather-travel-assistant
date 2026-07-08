@@ -6,7 +6,7 @@ export function EmptyState() {
     <div className="mt-10 text-center text-on-surface-variant/60">
       <p className="text-lg font-medium">Where are we exploring today?</p>
       <p className="mt-1 text-sm">
-        Ask about the weather anywhere — try “What&apos;s the weather in Kraków?”
+        Ask about the weather, air pollution anywhere — try “What&apos;s the weather in Kraków?”
       </p>
     </div>
   );

@@ -22,7 +22,7 @@ export function Composer({ input, isBusy, onInputChange, onSubmit, onStop }: Com
           <input
             value={input}
             onChange={(e) => onInputChange(e.target.value)}
-            placeholder="Message Aura Travel…"
+            placeholder="Ask about weather, forecast or air quality in any city…"
             disabled={isBusy}
             aria-label="Message"
             className="flex-1 bg-transparent py-2 text-[15px] placeholder:text-on-surface-variant/40 focus:outline-none disabled:opacity-60"
