@@ -1,4 +1,5 @@
 import { getChatModel } from '@/lib/model';
+import { pruneOldToolResults } from '@/lib/context';
 import {
   streamText,
   smoothStream,
@@ -250,7 +251,7 @@ export async function POST(req: Request) {
       "'Vienna', not 'Wiedeń') so the geocoder resolves the right place. If " +
       'a city cannot be found, say so plainly. Keep answers concise and ' +
       'helpful.',
-    messages: await convertToModelMessages(messages),
+    messages: await convertToModelMessages(pruneOldToolResults(messages)),
     tools: { getWeather, getForecast, getAirQuality },
     // The agent loop: without this the model calls the tool but never writes
     // the final answer.
