@@ -72,9 +72,11 @@ export async function POST(req: Request) {
       'Always pass city names in English (e.g. ' +
       "'Vienna', not 'Wiedeń') so the geocoder resolves the right place. If " +
       'a city cannot be found, say so plainly. When the user asks to plan a ' +
-      'trip, call getForecast first, then planTrip — the card shows the plan, ' +
-      'so do not repeat the summary or packing list in your text answer. ' +
-      'Keep answers concise and helpful.',
+      'trip, call getForecast first, then planTrip. The planTrip card is ' +
+      'already displayed to the user, so after calling it reply with exactly ' +
+      'one short sentence like "Your Lisbon trip plan is ready — enjoy!" and ' +
+      'do not mention any packing items, temperatures, or weather details in ' +
+      'that sentence. Keep answers concise and helpful.',
     messages: await convertToModelMessages(pruneOldToolResults(messages)),
     tools,
     // The agent loop: without this the model calls the tool but never writes
