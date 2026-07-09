@@ -7,7 +7,7 @@ import type { NextConfig } from "next";
 // and the framework's own inline bootstrap/RSC-payload scripts. Enforcing
 // would mean either 'unsafe-inline' (defeats the point) or per-request
 // nonces, and nonces force dynamic rendering — losing static optimization and
-// CDN caching. Deliberate YAGNI deferral for a portfolio app; see docs/SECURITY.md.
+// CDN caching. Deliberate YAGNI deferral for a portfolio app; see docs/THREAT-MODEL.md.
 const isDev = process.env.NODE_ENV === "development";
 
 const cspReportOnly = [

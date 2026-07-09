@@ -108,7 +108,7 @@ npm run lint    # eslint
 
 Threat-modelled against the current OWASP lists — Top 10 for Agentic Applications
 2026 (ASI), Top 10 for LLM Applications 2025, and the classic web Top 10 — with the
-full mapping (risk → applies? → mitigation → test) in [docs/SECURITY.md](./docs/SECURITY.md).
+full mapping (risk → applies? → mitigation → test) in [docs/THREAT-MODEL.md](./docs/THREAT-MODEL.md).
 Highlights: prompt-injection defence (data-vs-instructions rule + adversarial evals),
 per-IP rate limiting and request-size caps (consumption/cost), read-only tools by
 design, secrets kept server-side, and security response headers.
@@ -129,6 +129,6 @@ lib/
   rate-limit.ts       # per-IP sliding-window rate limiter
 components/chat/      # streamed message list + per-tool cards (with tests)
 evals/                # agent behaviour + adversarial eval suite
-docs/SECURITY.md      # OWASP threat model & mitigations
+docs/THREAT-MODEL.md  # OWASP threat model & mitigations
 next.config.ts        # security response headers (CSP report-only, HSTS, …)
 ```

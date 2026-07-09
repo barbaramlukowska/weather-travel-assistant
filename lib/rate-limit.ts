@@ -1,6 +1,6 @@
 // Sliding-window rate limiter, in-memory on purpose (YAGNI: no external
 // store). On serverless this counts per warm instance, not globally — good
-// enough to stop naive request loops; documented in docs/SECURITY.md.
+// enough to stop naive request loops; documented in docs/THREAT-MODEL.md.
 const WINDOW_MS = 60_000;
 const MAX_REQUESTS_PER_WINDOW = 10;
 
