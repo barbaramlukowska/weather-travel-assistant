@@ -14,8 +14,14 @@ import {
 } from 'ai';
 import { z } from 'zod';
 import { RATE_LIMIT_MESSAGE } from '@/lib/errors';
+import { isRateLimited, clientKeyFrom } from '@/lib/rate-limit';
 
 export const maxDuration = 30;
+
+// Consumption caps (OWASP LLM10): the endpoint is public and every request
+// spends paid tokens, so both request rate and request size are bounded.
+const MAX_BODY_BYTES = 64 * 1024;
+const MAX_MESSAGES = 60;
 
 // The SDK masks streaming errors as "An error occurred." so internals never
 // leak. We override that only for the free-tier daily quota (HTTP 429), which
@@ -35,14 +41,27 @@ function toClientErrorMessage(error: unknown): string {
 // Validate at the trust boundary, but only the contract we depend on (a
 // non-empty messages array) — the AI SDK owns and validates the rest.
 const requestSchema = z.object({
-  messages: z.array(z.unknown()).min(1),
+  messages: z.array(z.unknown()).min(1).max(MAX_MESSAGES),
 });
 
 export async function POST(req: Request) {
+  if (isRateLimited(clientKeyFrom(req))) {
+    return Response.json(
+      { error: 'Too many requests — please slow down.' },
+      { status: 429 },
+    );
+  }
+
+  // Read as text first so oversized bodies are rejected before JSON.parse.
+  const raw = await req.text();
+  if (raw.length > MAX_BODY_BYTES) {
+    return Response.json({ error: 'Request body too large' }, { status: 413 });
+  }
+
   // Parse defensively: a malformed or non-JSON body must not crash the route.
   let body: unknown;
   try {
-    body = await req.json();
+    body = JSON.parse(raw);
   } catch {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
