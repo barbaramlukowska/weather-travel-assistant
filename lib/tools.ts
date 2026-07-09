@@ -125,6 +125,9 @@ const getWeather = tool({
   inputSchema: z.object({
     city: z
       .string()
+      .trim()
+      .min(1)
+      .max(80)
       .describe('City name in English, e.g. "Vienna" (not "Wiedeń"), "Tokyo"'),
   }),
   execute: async ({ city }): Promise<WeatherOutput> => {
@@ -174,6 +177,9 @@ const getAirQuality = tool({
   inputSchema: z.object({
     city: z
       .string()
+      .trim()
+      .min(1)
+      .max(80)
       .describe('City name in English, e.g. "Vienna" (not "Wiedeń"), "Tokyo"'),
   }),
   execute: async ({ city }): Promise<AirQualityOutput> => {
@@ -214,6 +220,9 @@ const getForecast = tool({
   inputSchema: z.object({
     city: z
       .string()
+      .trim()
+      .min(1)
+      .max(80)
       .describe('City name in English, e.g. "Vienna" (not "Wiedeń"), "Tokyo"'),
   }),
   // Always fetch a full week. Letting the model choose how many days meant it
