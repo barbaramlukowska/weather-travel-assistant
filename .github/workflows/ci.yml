@@ -33,5 +33,4 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm run lint
       - run: npm run test
-      # `npm run build` would re-run vitest, so build Next directly
-      - run: npx next build
+      - run: npm run build
