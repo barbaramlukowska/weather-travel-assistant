@@ -44,7 +44,9 @@ interface ToolCallProps<T extends ToolOutput> {
   renderCard: (output: Extract<T, { found: true }>) => ReactNode;
 }
 
-function ToolCall<T extends ToolOutput>({
+// Exported so its four states can be tested directly, without going through
+// a full chat message and a specific tool's part type.
+export function ToolCall<T extends ToolOutput>({
   part,
   icon,
   loadingLabel,

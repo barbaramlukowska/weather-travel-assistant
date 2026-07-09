@@ -1,0 +1,34 @@
+name: CI
+
+# Deterministic, free checks only — types, lint, component tests. Evals hit
+# a real LLM and are non-deterministic, so they intentionally do NOT run
+# here (see docs/PLAN-nauka-ai-agent.md, Phase 10); run `npm run eval`
+# by hand after changing the prompt or tools.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run lint
+      - run: npm run test
+      # `npm run build` would re-run vitest, so build Next directly
+      - run: npx next build
