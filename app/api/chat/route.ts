@@ -1,6 +1,7 @@
 import { getChatModel } from '@/lib/model';
 import { pruneOldToolResults } from '@/lib/context';
 import { tools, type ChatUIMessage } from '@/lib/tools';
+import { buildSystemPrompt } from '@/lib/prompt';
 import {
   streamText,
   smoothStream,
@@ -60,23 +61,7 @@ export async function POST(req: Request) {
     // Accuracy comes from the getWeather tool, not the model's own knowledge,
     // so a small, fast model is enough for correct weather.
     model: getChatModel(),
-    system:
-      `Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}. You are a friendly travel assistant. Use your tools to fetch real ` +
-      'data instead of guessing: getWeather for CURRENT conditions, ' +
-      'getForecast for FUTURE weather (tomorrow, the weekend, an upcoming ' +
-      'trip), and getAirQuality for air quality, smog, or pollution. Combine ' +
-      'several tools in one answer when the question needs it. Never present ' +
-      'current conditions as a forecast — if the user asks about the future, ' +
-      'call getForecast. Each forecast day includes a `weekday` field — use it ' +
-      'verbatim; never rename or recompute the day of the week yourself. ' +
-      'Always pass city names in English (e.g. ' +
-      "'Vienna', not 'Wiedeń') so the geocoder resolves the right place. If " +
-      'a city cannot be found, say so plainly. When the user asks to plan a ' +
-      'trip, call getForecast first, then planTrip. The planTrip card is ' +
-      'already displayed to the user, so after calling it reply with exactly ' +
-      'one short sentence like "Your Lisbon trip plan is ready — enjoy!" and ' +
-      'do not mention any packing items, temperatures, or weather details in ' +
-      'that sentence. Keep answers concise and helpful.',
+    system: buildSystemPrompt(),
     messages: await convertToModelMessages(pruneOldToolResults(messages)),
     tools,
     // The agent loop: without this the model calls the tool but never writes
