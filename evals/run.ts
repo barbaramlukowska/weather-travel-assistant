@@ -1,4 +1,5 @@
 import { generateText, stepCountIs, type ModelMessage } from 'ai';
+import { compactContext } from '../lib/context';
 import { getChatModel } from '../lib/model';
 import { buildSystemPrompt } from '../lib/prompt';
 import { tools } from '../lib/tools';
@@ -15,12 +16,19 @@ async function runCase(c: EvalCase): Promise<string[]> {
 
   for (const turn of c.turns) {
     messages.push({ role: 'user', content: turn });
+    // Same context pipeline as production. Without this the runner would test
+    // an agent that sees a longer history than the real one — which is exactly
+    // how the "pruning loses facts" bug stayed invisible.
+    const { messages: compacted } = await compactContext(
+      messages,
+      c.tokenBudget === undefined ? {} : { tokenBudget: c.tokenBudget },
+    );
     const result = await generateText({
       // Same model, prompt, tools and step budget as the app — the point of
       // evals is to test the agent users talk to, not a copy.
       model: getChatModel(),
       system: buildSystemPrompt(),
-      messages,
+      messages: compacted,
       tools,
       stopWhen: stepCountIs(5),
     });

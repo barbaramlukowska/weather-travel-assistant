@@ -6,46 +6,71 @@ import { z } from 'zod';
 // Annotating the execute() return types keeps the `found` literals narrow
 // (a bare `return { found: false }` would widen to `boolean`), which the
 // inferred UI types below depend on.
-export type WeatherOutput =
-  | {
-      found: true;
-      location: string;
-      temperature: number;
-      feelsLike: number;
-      precipitation: number;
-      windSpeed: number;
-      units: { temperature: string; windSpeed: string };
-    }
-  | { found: false; city: string };
+// Output shapes as Zod schemas, with the TS types derived from them. Two
+// consumers need the same truth: the cards (compile time) and the context
+// digest, which sees `JSONValue` and must narrow at runtime.
+const notFoundSchema = z.object({ found: z.literal(false), city: z.string() });
 
-export type ForecastDay = {
-  date: string;
-  weekday: string;
-  maxTemp: number;
-  minTemp: number;
-  precipitationChance: number;
-  maxWindSpeed: number;
-};
+const weatherOutputSchema = z.discriminatedUnion('found', [
+  z.object({
+    found: z.literal(true),
+    location: z.string(),
+    temperature: z.number(),
+    feelsLike: z.number(),
+    precipitation: z.number(),
+    windSpeed: z.number(),
+    units: z.object({ temperature: z.string(), windSpeed: z.string() }),
+  }),
+  notFoundSchema,
+]);
+export type WeatherOutput = z.infer<typeof weatherOutputSchema>;
 
-export type ForecastOutput =
-  | {
-      found: true;
-      location: string;
-      days: ForecastDay[];
-      units: { temperature: string; precipitationChance: string; windSpeed: string };
-    }
-  | { found: false; city: string };
+const forecastDaySchema = z.object({
+  date: z.string(),
+  weekday: z.string(),
+  maxTemp: z.number(),
+  minTemp: z.number(),
+  precipitationChance: z.number(),
+  maxWindSpeed: z.number(),
+});
+export type ForecastDay = z.infer<typeof forecastDaySchema>;
 
-export type AirQualityOutput =
-  | {
-      found: true;
-      location: string;
-      usAqi: number;
-      pm25: number;
-      pm10: number;
-      europeanAqi: number;
-    }
-  | { found: false; city: string };
+const forecastOutputSchema = z.discriminatedUnion('found', [
+  z.object({
+    found: z.literal(true),
+    location: z.string(),
+    days: z.array(forecastDaySchema),
+    units: z.object({
+      temperature: z.string(),
+      precipitationChance: z.string(),
+      windSpeed: z.string(),
+    }),
+  }),
+  notFoundSchema,
+]);
+export type ForecastOutput = z.infer<typeof forecastOutputSchema>;
+
+const airQualityOutputSchema = z.discriminatedUnion('found', [
+  z.object({
+    found: z.literal(true),
+    location: z.string(),
+    usAqi: z.number(),
+    pm25: z.number(),
+    pm10: z.number(),
+    europeanAqi: z.number(),
+  }),
+  notFoundSchema,
+]);
+export type AirQualityOutput = z.infer<typeof airQualityOutputSchema>;
+
+// Keyed by tool name so the digest can look a schema up from a `toolName`
+// string. planTrip is absent on purpose: its output is already small enough
+// to send in full.
+export const toolOutputSchemas = {
+  getWeather: weatherOutputSchema,
+  getForecast: forecastOutputSchema,
+  getAirQuality: airQualityOutputSchema,
+} as const;
 
 export type TripPlanOutput =
   | {

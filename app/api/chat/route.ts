@@ -1,5 +1,5 @@
 import { getChatModel } from '@/lib/model';
-import { pruneOldToolResults } from '@/lib/context';
+import { compactContext } from '@/lib/context';
 import { tools, type ChatUIMessage } from '@/lib/tools';
 import { buildSystemPrompt } from '@/lib/prompt';
 import {
@@ -76,12 +76,27 @@ export async function POST(req: Request) {
 
   const messages = parsed.data.messages as ChatUIMessage[];
 
+  // Compaction runs on ModelMessages — after conversion, right before the
+  // model call. That is the layer where tool results carry a `toolName` and
+  // may hold plain text, and it is the same shape the eval runner uses.
+  const modelMessages = await convertToModelMessages(messages);
+  const { messages: compacted, stats } = await compactContext(modelMessages);
+
+  // Level 2 costs a model call and up to 8s before the first token, so on
+  // production we log every turn that pays for it — including whether the
+  // recap was cached, summarised incrementally, or rebuilt from scratch.
+  // Turns that only ran level 1 are silent there; in development we log all
+  // of them, where the noise is useful and free.
+  if (stats.summarized || process.env.NODE_ENV !== 'production') {
+    console.log('context compaction:', stats);
+  }
+
   const result = streamText({
     // Accuracy comes from the getWeather tool, not the model's own knowledge,
     // so a small, fast model is enough for correct weather.
     model: getChatModel(),
     system: buildSystemPrompt(),
-    messages: await convertToModelMessages(pruneOldToolResults(messages)),
+    messages: compacted,
     tools,
     // The agent loop: without this the model calls the tool but never writes
     // the final answer.
