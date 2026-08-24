@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# personal learning notes — kept next to the project for convenience,
+# not published (contains study plan, interview prep, private notes)
+/docs/NAUKA-agentic-ai.md

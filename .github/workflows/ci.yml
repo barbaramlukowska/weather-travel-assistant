@@ -2,7 +2,7 @@ name: CI
 
 # Deterministic, free checks only — types, lint, component tests. Evals hit
 # a real LLM and are non-deterministic, so they intentionally do NOT run
-# here (see docs/PLAN-nauka-ai-agent.md, Phase 10); run `npm run eval`
+# here (see docs/NAUKA-agentic-ai.md, Phase 10); run `npm run eval`
 # by hand after changing the prompt or tools.
 on:
   pull_request:
@@ -33,4 +33,6 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm run lint
       - run: npm run test
-      - run: npm run build
+      # `npm run build` runs vitest too (so a failing test blocks the Vercel
+      # deploy) — build Next directly here to avoid a second test run.
+      - run: npx next build

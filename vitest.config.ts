@@ -8,7 +8,7 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
     // Evals hit real APIs and are non-deterministic — kept out of the unit
-    // test run entirely (see docs/PLAN-nauka-ai-agent.md, Phase 10).
+    // test run entirely (see docs/NAUKA-agentic-ai.md, Phase 10).
     exclude: ['node_modules', 'evals'],
   },
   resolve: {
