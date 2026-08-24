@@ -33,6 +33,7 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm run lint
       - run: npm run test
-      # `npm run build` runs vitest too (so a failing test blocks the Vercel
-      # deploy) — build Next directly here to avoid a second test run.
-      - run: npx next build
+      # This is the only place tests run. `npm run build` is just `next build`,
+      # so Vercel does NOT re-run them — main is guarded by branch protection
+      # requiring this job to pass before a merge.
+      - run: npm run build
