@@ -13,9 +13,12 @@ export default defineConfig({
     // Wymuszamy 'test', żeby testy zawsze dostały bundle development.
     env: { NODE_ENV: 'test' },
     setupFiles: ['./vitest.setup.ts'],
-    // Evals hit real APIs and are non-deterministic — kept out of the unit
-    // test run entirely (see docs/NAUKA-agentic-ai.md, Phase 10).
-    exclude: ['node_modules', 'evals'],
+    // Eval runners hit real APIs and are non-deterministic, so they never run
+    // under `npm test` (see NAUKA-agentic-ai.md, Phase 10 — outside this repo);
+    // run them by hand with `npm run eval` / `npm run eval:judge`. Pure unit
+    // tests living next to eval helpers DO run here — add any new paid runner
+    // to this list.
+    exclude: ['node_modules', 'evals/run.ts', 'evals/judge-check.ts'],
   },
   resolve: {
     alias: {

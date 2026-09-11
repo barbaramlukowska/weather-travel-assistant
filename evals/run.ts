@@ -3,13 +3,16 @@ import { compactContext } from '../lib/context';
 import { getChatModel } from '../lib/model';
 import { buildSystemPrompt } from '../lib/prompt';
 import { tools } from '../lib/tools';
+import { EVAL_FLAGS, parseEvalArgs, selectById } from './args';
 import { cases, type EvalCase } from './cases';
+import { judgeAnswer } from './judge';
+import { formatJudgeFailure } from './judge-verdicts';
 
 type RecordedCall = { toolName: string; input: Record<string, unknown> };
 
 // Replay the case's turns the way useChat would (append responses to the
 // history), then assert on the final turn only: its tool calls and text.
-async function runCase(c: EvalCase): Promise<string[]> {
+async function runCase(c: EvalCase, noJudge: boolean): Promise<string[]> {
   const messages: ModelMessage[] = [];
   let calls: RecordedCall[] = [];
   let text = '';
@@ -80,18 +83,53 @@ async function runCase(c: EvalCase): Promise<string[]> {
   if (c.answerMaxLength && text.length > c.answerMaxLength) {
     failures.push(`answer is ${text.length} chars, max ${c.answerMaxLength}`);
   }
+
+  // The judge runs only when the free, deterministic layer is green: a case
+  // that already failed is red regardless of the verdict, and paying for a
+  // quality judgment on an answer we know called the wrong tool buys nothing.
+  if (c.judge?.length && !noJudge && failures.length === 0) {
+    try {
+      const verdicts = await judgeAnswer({
+        question: c.turns[c.turns.length - 1],
+        answer: text,
+        criteria: c.judge,
+      });
+      for (const verdict of verdicts) {
+        if (!verdict.pass) failures.push(formatJudgeFailure(verdict));
+      }
+    } catch (err) {
+      // Never let a broken instrument read as a pass.
+      failures.push(`judge crashed: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
   return failures;
 }
 
 async function main() {
   // Optional filter by case id: `npm run eval -- trip-plan`
-  const filter = process.argv[2];
-  const selected = filter ? cases.filter((c) => c.id.includes(filter)) : cases;
+  const { filter, noJudge, unknownFlags } = parseEvalArgs(process.argv.slice(2));
+  // A misspelled --no-judge used to run the paid judge in silence. A warning
+  // would scroll past; this run costs money, so an unknown flag stops it.
+  if (unknownFlags.length > 0) {
+    console.log(`unknown flag: ${unknownFlags.join(', ')} (known: ${EVAL_FLAGS.join(', ')})`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const selected = selectById(cases, filter);
+  // A filter that matches nothing used to print a green 0/0 and exit 0, which
+  // reads as "everything passed" — the one answer an eval must never fake.
+  if (selected.length === 0) {
+    console.log(`no case id matches "${filter}"`);
+    process.exitCode = 1;
+    return;
+  }
 
   let passed = 0;
   for (const c of selected) {
     try {
-      const failures = await runCase(c);
+      const failures = await runCase(c, noJudge);
       if (failures.length === 0) {
         passed++;
         console.log(`✅ ${c.id}`);
