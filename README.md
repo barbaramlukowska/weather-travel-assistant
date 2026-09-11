@@ -88,21 +88,35 @@ Default is **OpenAI pay-as-you-go** — a multi-step agent can make several mode
 calls per question, which the free Gemini tier (~20 requests/day) couldn't sustain.
 Gemini remains a drop-in fallback: set `LLM_PROVIDER=google` and provide its key.
 
+The eval judge picks its model independently, via `JUDGE_PROVIDER` (default `openai`)
+and `JUDGE_MODEL` — the agent and the instrument that measures it are separate
+choices, so swapping one never silently swaps the other.
+
 > **Note:** if the free Gemini tier hits its daily cap, the app surfaces a friendly
 > message (HTTP 429) instead of a generic error, and the quota resets within 24 hours.
 
 ## Testing & quality
 
 ```bash
-npm run test    # Vitest — component + unit tests (also gate the Vercel build)
-npm run eval    # agent evals — X/10 report on real LLM behaviour (run manually)
-npm run lint    # eslint
+npm run test               # Vitest — component + unit tests (gate the CI pipeline)
+npm run eval               # agent evals — 17 cases against a real LLM (run manually)
+npm run eval -- --no-judge # same, deterministic assertions only (cheaper)
+npm run eval:judge         # calibrate the LLM judge against hand-labelled fixtures
+npm run lint               # eslint
 ```
 
-- **Component/unit tests** run in CI (GitHub Actions) and before every Vercel build.
+- **Component/unit tests** run in CI (GitHub Actions), ahead of the build step, so a red test blocks the pipeline. They are deliberately *not* part of `npm run build` itself — Vercel runs that script in a production environment where the React test bundle is unavailable.
 - **Evals** (`evals/`) check agent *behaviour* — which tools fire, tool inputs, and
   the final text — including adversarial prompt-injection cases. They hit a real LLM
   (non-deterministic, paid), so they run on demand, not in CI.
+- **LLM-as-judge** adds a second layer on six of those cases: a separate model rules
+  on closed criteria a regex cannot express ("does the answer actually recommend
+  whether to go for a run, and justify it with the reported value?"). It runs only
+  after the deterministic assertions pass, and its verdicts join the same failure
+  list. The judge itself is calibrated first: `npm run eval:judge` scores it against
+  9 hand-labelled fixtures (11 labels, 5 pass / 6 fail) and prints the result next to
+  an always-pass/always-fail baseline, so a judge that answers the same way every
+  time is visibly worse than a real one.
 
 ## Security
 
@@ -125,10 +139,11 @@ lib/
   model.ts            # provider-agnostic model selection (LLM_PROVIDER)
   tools.ts            # the four tools + Zod schemas + inferred UI types
   prompt.ts           # single source of truth for the system prompt
-  context.ts          # prune old tool results from the model context
+  context/            # two-level context compaction (digest, tokens, summarize, compact)
   rate-limit.ts       # per-IP sliding-window rate limiter
 components/chat/      # streamed message list + per-tool cards (with tests)
-evals/                # agent behaviour + adversarial eval suite
+evals/                # agent behaviour + adversarial eval suite, plus the LLM judge
+                      # (judge.ts calls the model; prompt/verdict/score logic is pure)
 docs/THREAT-MODEL.md  # OWASP threat model & mitigations
 next.config.ts        # security response headers (CSP report-only, HSTS, …)
 ```
