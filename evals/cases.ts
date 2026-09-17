@@ -1,6 +1,7 @@
-// Eval cases: measurable expectations only. "Which tools were called" and
-// "what the text must (not) contain" — quality judgments belong to a future
-// LLM-as-judge step, not here. All assertions apply to the FINAL turn.
+// Eval cases: deterministic expectations plus, on six of them, closed
+// criteria for the LLM judge (`judge`). "Which tools were called" and "what
+// the text must (not) contain" stay code-checkable; the judge covers only
+// what a regex cannot express. All assertions apply to the FINAL turn.
 export type EvalCase = {
   id: string;
   description: string;
@@ -18,6 +19,12 @@ export type EvalCase = {
   answerMustMatch?: RegExp[];
   answerMustNotMatch?: RegExp[];
   answerMaxLength?: number;
+  // Closed questions for the LLM judge: each must be decidable by pointing at
+  // a fragment of the answer. Judged only when the deterministic assertions
+  // above have all passed. Cases whose final turn needs the conversation
+  // history (e.g. "the air quality THERE") deliberately get none — see the
+  // spec, "Czego świadomie NIE oceniamy".
+  judge?: string[];
 };
 
 const ALL_TOOLS = ['getWeather', 'getForecast', 'getAirQuality', 'planTrip'];
@@ -45,6 +52,10 @@ export const cases: EvalCase[] = [
     expectTools: ['getForecast'],
     forbidTools: ['getWeather'],
     answerMustMatch: [/Saturday|Sunday/i],
+    judge: [
+      'The answer says whether rain is expected, not only what the temperature will be.',
+      'The rain statement is tied to at least one named day of the weekend.',
+    ],
   },
   {
     id: 'air-quality-run',
@@ -52,6 +63,10 @@ export const cases: EvalCase[] = [
     turns: ["What's the smog level in Warsaw right now? Is it OK to go for a run?"],
     expectTools: ['getAirQuality'],
     answerMustMatch: [/\d/, /run/i],
+    judge: [
+      'The answer gives a clear recommendation on whether going for a run now is a good idea.',
+      'The recommendation is justified by the reported air-quality value, not stated on its own.',
+    ],
   },
   {
     id: 'trip-plan-flow',
@@ -60,6 +75,14 @@ export const cases: EvalCase[] = [
     expectTools: ['getForecast', 'planTrip'],
     inOrder: true,
     answerMaxLength: 200,
+    judge: [
+      // Was "points the user to the trip plan": undecidable from the answer
+      // alone, because the plan is a UI card next to the text, so the judge
+      // correctly failed it (first judged run). The system prompt specifies
+      // exactly this one-sentence close, so the criterion is what was wrong.
+      'The answer refers to the trip plan without repeating its contents.',
+      'The answer does not list packing items or per-day activities in prose.',
+    ],
   },
   {
     id: 'multi-tool',
@@ -74,6 +97,10 @@ export const cases: EvalCase[] = [
     expectTools: ['getWeather'],
     answerMustMatch: [/find|exist|recogni[sz]e|unknown/i],
     answerMustNotMatch: [/\d+\s*°/],
+    judge: [
+      'The answer states plainly that the city could not be found.',
+      'The answer asks the user to check the spelling or to name another city.',
+    ],
   },
   {
     id: 'off-domain',
@@ -81,6 +108,10 @@ export const cases: EvalCase[] = [
     turns: ['Give me a good recipe for dinner tonight'],
     forbidTools: ALL_TOOLS,
     answerMustMatch: [/travel|weather/i],
+    judge: [
+      'The answer does not contain a recipe, ingredients or cooking steps, even partially.',
+      'The answer names what it can help with instead of the request.',
+    ],
   },
   {
     id: 'memory-there',
@@ -120,6 +151,10 @@ export const cases: EvalCase[] = [
     answerMustNotMatch: [
       /US AQI/i,
       /don'?t have|do not have|not available|only have|unable to/i,
+    ],
+    judge: [
+      'The answer reports a European AQI number for the earlier Kraków air-quality check.',
+      'The answer does not claim it needs to look the value up again.',
     ],
   },
   {

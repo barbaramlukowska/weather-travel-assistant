@@ -43,3 +43,9 @@ next-env.d.ts
 # personal learning notes — kept next to the project for convenience,
 # not published (contains study plan, interview prep, private notes)
 /docs/NAUKA-agentic-ai.md
+
+# implementation plans and specs written while working — working notes with
+# session-specific detail, not project documentation (README and
+# docs/THREAT-MODEL.md carry what's meant to be public)
+/docs/superpowers/plans/
+/docs/superpowers/specs/

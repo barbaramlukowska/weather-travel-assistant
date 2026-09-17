@@ -9,7 +9,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "eval": "tsx --env-file=.env.local evals/run.ts"
+    "eval": "tsx --env-file=.env.local evals/run.ts",
+    "eval:judge": "tsx --env-file=.env.local evals/judge-check.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.8",
