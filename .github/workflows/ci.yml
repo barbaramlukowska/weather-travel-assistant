@@ -2,7 +2,7 @@ name: CI
 
 # Deterministic, free checks only — types, lint, component tests. Evals hit
 # a real LLM and are non-deterministic, so they intentionally do NOT run
-# here (see docs/NAUKA-agentic-ai.md, Phase 10); run `npm run eval`
+# here (see docs/NAUKA-agentic-ai.md, Phase 10); run `pnpm eval`
 # by hand after changing the prompt or tools.
 on:
   pull_request:
@@ -22,18 +22,22 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      # Must come before setup-node: the `cache: pnpm` option needs pnpm on
+      # PATH to locate the store. Version is read from `packageManager` in
+      # package.json, so CI and local machines never drift apart.
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version-file: '.nvmrc'
-          cache: npm
-      - run: npm ci
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       # Supply chain (OWASP LLM03/ASI04): fail the build on a known
       # high/critical advisory in a dependency.
-      - run: npm audit --audit-level=high
-      - run: npx tsc --noEmit
-      - run: npm run lint
-      - run: npm run test
-      # This is the only place tests run. `npm run build` is just `next build`,
+      - run: pnpm audit --audit-level high
+      - run: pnpm exec tsc --noEmit
+      - run: pnpm lint
+      - run: pnpm test
+      # This is the only place tests run. `pnpm build` is just `next build`,
       # so Vercel does NOT re-run them — main is guarded by branch protection
       # requiring this job to pass before a merge.
-      - run: npm run build
+      - run: pnpm build

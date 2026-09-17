@@ -63,13 +63,13 @@ is unreliable (date math, AQI scales), the code decides and hands it the result.
 
 ```bash
 # 1. Install dependencies
-npm install
+pnpm install
 
 # 2. Add an API key for your chosen provider (see below)
 echo "OPENAI_API_KEY=your-key-here" > .env.local
 
 # 3. Start the dev server
-npm run dev
+pnpm dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) and ask, e.g., _"What's the
@@ -98,14 +98,14 @@ choices, so swapping one never silently swaps the other.
 ## Testing & quality
 
 ```bash
-npm run test               # Vitest — component + unit tests (gate the CI pipeline)
-npm run eval               # agent evals — 17 cases against a real LLM (run manually)
-npm run eval -- --no-judge # same, deterministic assertions only (cheaper)
-npm run eval:judge         # calibrate the LLM judge against hand-labelled fixtures
-npm run lint               # eslint
+pnpm test               # Vitest — component + unit tests (gate the CI pipeline)
+pnpm eval               # agent evals — 17 cases against a real LLM (run manually)
+pnpm eval -- --no-judge # same, deterministic assertions only (cheaper)
+pnpm eval:judge         # calibrate the LLM judge against hand-labelled fixtures
+pnpm lint               # eslint
 ```
 
-- **Component/unit tests** run in CI (GitHub Actions), ahead of the build step, so a red test blocks the pipeline. They are deliberately *not* part of `npm run build` itself — Vercel runs that script in a production environment where the React test bundle is unavailable.
+- **Component/unit tests** run in CI (GitHub Actions), ahead of the build step, so a red test blocks the pipeline. They are deliberately *not* part of `pnpm build` itself — Vercel runs that script in a production environment where the React test bundle is unavailable.
 - **Evals** (`evals/`) check agent *behaviour* — which tools fire, tool inputs, and
   the final text — including adversarial prompt-injection cases. They hit a real LLM
   (non-deterministic, paid), so they run on demand, not in CI.
@@ -113,7 +113,7 @@ npm run lint               # eslint
   on closed criteria a regex cannot express ("does the answer actually recommend
   whether to go for a run, and justify it with the reported value?"). It runs only
   after the deterministic assertions pass, and its verdicts join the same failure
-  list. The judge itself is calibrated first: `npm run eval:judge` scores it against
+  list. The judge itself is calibrated first: `pnpm eval:judge` scores it against
   9 hand-labelled fixtures (11 labels, 5 pass / 6 fail) and prints the result next to
   an always-pass/always-fail baseline, so a judge that answers the same way every
   time is visibly worse than a real one.
