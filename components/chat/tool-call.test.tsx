@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { Cloud } from 'lucide-react';
-import { ToolCall } from './message-item';
+import { MemoryToolCall, ToolCall } from './message-item';
 import type { ToolOutput, ToolPart } from './types';
 
 // A minimal stand-in output: real cards render their own fields, but the
@@ -56,5 +56,42 @@ describe('ToolCall state machine', () => {
   it('shows an error chip when the tool call failed', () => {
     renderToolCall({ state: 'output-error', input: { city: 'Lisbon' }, errorText: 'boom' });
     expect(screen.getByText('Weather lookup failed')).toBeInTheDocument();
+  });
+});
+
+describe('MemoryToolCall states', () => {
+  const labels = { pendingLabel: 'Remembering…', errorLabel: "Couldn't save that preference" };
+
+  it('shows a pending chip while the call is in flight', () => {
+    render(<MemoryToolCall part={{ state: 'input-available' }} {...labels} />);
+    expect(screen.getByText('Remembering…')).toBeInTheDocument();
+  });
+
+  it('shows the memory card once the browser saved the fact', () => {
+    render(
+      <MemoryToolCall
+        part={{
+          state: 'output-available',
+          output: { saved: true, category: 'climate', value: { maxComfortC: 28 } },
+        }}
+        {...labels}
+      />,
+    );
+    expect(screen.getByText('Climate — comfortable up to 28 °C')).toBeInTheDocument();
+  });
+
+  it('shows an error chip when the browser could not save', () => {
+    render(<MemoryToolCall part={{ state: 'output-error', errorText: 'blocked' }} {...labels} />);
+    expect(screen.getByText("Couldn't save that preference")).toBeInTheDocument();
+  });
+
+  it('shows the memory card for a saved note', () => {
+    render(
+      <MemoryToolCall
+        part={{ state: 'output-available', output: { saved: true, category: 'notes', value: { text: 'vegetarian' } } }}
+        {...labels}
+      />,
+    );
+    expect(screen.getByText('Note — vegetarian')).toBeInTheDocument();
   });
 });
