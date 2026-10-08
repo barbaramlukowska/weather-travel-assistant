@@ -1,5 +1,6 @@
 import { generateText, stepCountIs, type ModelMessage } from 'ai';
 import { compactContext } from '../lib/context';
+import { formatFact, memoryFacts } from '../lib/memory';
 import { getChatModel } from '../lib/model';
 import { buildSystemPrompt } from '../lib/prompt';
 import { EVAL_FLAGS, parseEvalArgs, selectById } from './args';
@@ -7,8 +8,7 @@ import { cases, type EvalCase } from './cases';
 import { judgeAnswer } from './judge';
 import { formatJudgeFailure } from './judge-verdicts';
 import { createEvalMemory } from './memory-tools';
-
-type RecordedCall = { toolName: string; input: Record<string, unknown> };
+import { recordCalls, type RecordedCall } from './record-calls';
 
 // Replay the case's turns the way useChat would (append responses to the
 // history), then assert on the final turn only: its tool calls and text.
@@ -38,23 +38,26 @@ async function runCase(c: EvalCase, noJudge: boolean): Promise<string[]> {
       tools,
       stopWhen: stepCountIs(5),
     });
-    calls = result.steps.flatMap((step) =>
-      step.toolCalls.map((tc) => ({
-        toolName: tc.toolName,
-        input: tc.input as Record<string, unknown>,
-      })),
-    );
+    calls = recordCalls(result.steps);
     text = result.text;
     messages.push(...result.responseMessages);
   }
 
   const failures: string[] = [];
-  const called = calls.map((call) => call.toolName);
+  // A rejected call never ran: it does not satisfy expectTools or
+  // expectToolInput, but trying a forbidden tool still counts.
+  const accepted = calls.filter((call) => call.rejected === undefined);
+  const called = accepted.map((call) => call.toolName);
+  const rejected = calls
+    .filter((call) => call.rejected !== undefined)
+    .map((call) => `${call.toolName} — ${call.rejected}`);
 
   for (const name of c.expectTools ?? []) {
     if (!called.includes(name)) {
       failures.push(
-        `expected tool "${name}" was not called (called: ${called.join(', ') || 'none'})`,
+        `expected tool "${name}" was not called (called: ${called.join(', ') || 'none'}` +
+          (rejected.length > 0 ? `; rejected: ${rejected.join('; ')}` : '') +
+          ')',
       );
     }
   }
@@ -66,10 +69,12 @@ async function runCase(c: EvalCase, noJudge: boolean): Promise<string[]> {
     if (!inOrder) failures.push(`tools out of order: ${called.join(' → ') || 'none'}`);
   }
   for (const name of c.forbidTools ?? []) {
-    if (called.includes(name)) failures.push(`forbidden tool "${name}" was called`);
+    if (calls.some((call) => call.toolName === name)) {
+      failures.push(`forbidden tool "${name}" was called`);
+    }
   }
   for (const check of c.expectToolInput ?? []) {
-    const call = calls.find((x) => x.toolName === check.tool);
+    const call = accepted.find((x) => x.toolName === check.tool);
     const value = call?.input[check.field];
     // Non-string fields (planTrip.packingList) are matched as their JSON text.
     const text = typeof value === 'string' || value === undefined ? value : JSON.stringify(value);
@@ -80,7 +85,10 @@ async function runCase(c: EvalCase, noJudge: boolean): Promise<string[]> {
     }
   }
   for (const check of c.expectMemory ?? []) {
-    const value = memory[check.category];
+    // Matched against the formatter's text — the words the prompt and the
+    // panel show — not the raw object, so a regex reads like the UI.
+    const fact = memoryFacts(memory).find((f) => f.category === check.category);
+    const value = fact === undefined ? undefined : formatFact(fact);
     if (check.match === null) {
       if (value !== undefined) {
         failures.push(`memory.${check.category} should be empty, is ${JSON.stringify(value)}`);
@@ -89,6 +97,19 @@ async function runCase(c: EvalCase, noJudge: boolean): Promise<string[]> {
       failures.push(
         `memory.${check.category} = ${JSON.stringify(value)} does not match ${check.match}`,
       );
+    }
+  }
+  if (c.expectNotes) {
+    const notes = memory.notes ?? [];
+    const { includes, excludes, empty } = c.expectNotes;
+    if (empty && notes.length > 0) {
+      failures.push(`notes should be empty, are ${JSON.stringify(notes)}`);
+    }
+    if (includes && !notes.some((note) => includes.test(note))) {
+      failures.push(`no note matches ${includes}: ${JSON.stringify(notes)}`);
+    }
+    if (excludes && notes.some((note) => excludes.test(note))) {
+      failures.push(`a note matches forbidden ${excludes}: ${JSON.stringify(notes)}`);
     }
   }
 

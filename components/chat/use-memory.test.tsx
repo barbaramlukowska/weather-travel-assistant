@@ -6,7 +6,7 @@ import { useMemory } from './use-memory';
 
 function Probe() {
   const memory = useMemory();
-  return <span data-testid="probe">{memory.homeCity ?? 'none'}</span>;
+  return <span data-testid="probe">{memory.homeCity?.name ?? 'none'}</span>;
 }
 
 beforeEach(() => {
@@ -15,7 +15,7 @@ beforeEach(() => {
 
 describe('useMemory', () => {
   it('reads what is saved in this browser', () => {
-    saveFact('homeCity', 'Kraków');
+    saveFact({ category: 'homeCity', value: { name: 'Kraków', country: 'Poland' } });
     render(<Probe />);
     expect(screen.getByTestId('probe')).toHaveTextContent('Kraków');
   });
@@ -23,7 +23,7 @@ describe('useMemory', () => {
   it('re-renders when memory changes', () => {
     render(<Probe />);
     act(() => {
-      saveFact('homeCity', 'Gdańsk');
+      saveFact({ category: 'homeCity', value: { name: 'Gdańsk', country: 'Poland' } });
     });
     expect(screen.getByTestId('probe')).toHaveTextContent('Gdańsk');
   });
@@ -32,7 +32,7 @@ describe('useMemory', () => {
   // server snapshot there keeps the server HTML and the first client render
   // identical, so hydration never mismatches.
   it('renders empty memory on the server', () => {
-    saveFact('homeCity', 'Kraków');
+    saveFact({ category: 'homeCity', value: { name: 'Kraków', country: 'Poland' } });
     expect(renderToString(<Probe />)).toContain('none');
   });
 });

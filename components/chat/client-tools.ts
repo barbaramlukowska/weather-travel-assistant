@@ -1,5 +1,14 @@
 import { lastAssistantMessageIsCompleteWithToolCalls } from 'ai';
-import { removeFact, saveFact } from '@/lib/memory';
+import { geocodeCity, type Geocode } from '@/lib/geocode';
+import {
+  addNote,
+  readMemory,
+  removeFact,
+  removeNote,
+  replaceMemory,
+  resolveRememberInput,
+  saveFact,
+} from '@/lib/memory';
 import type {
   ChatUIMessage,
   ForgetInput,
@@ -13,14 +22,52 @@ import type {
 export const MEMORY_WRITE_ERROR =
   'This browser blocked saving preferences (storage unavailable).';
 
-// The browser-side execute of the memory tools. Pure apart from the store, so
-// it is tested here instead of through a full useChat round-trip.
-export function runRemember({ category, value }: RememberInput): RememberOutput | null {
-  return saveFact(category, value) ? { saved: true, category, value } : null;
+// useChat awaits onToolCall while it reads the stream, so a hung geocoder
+// would freeze the chat on "Remembering…". After this long the request is
+// aborted, and the model hears "could not verify the city".
+export const GEOCODE_TIMEOUT_MS = 5000;
+
+const geocodeInBrowser: Geocode = (city) =>
+  geocodeCity(city, { signal: AbortSignal.timeout(GEOCODE_TIMEOUT_MS) });
+
+export type RememberResult = { ok: true; output: RememberOutput } | { ok: false; error: string };
+
+// The browser-side execute of remember. Async because a city waits for the
+// geocoder. Pure apart from the store and the network, so it is tested here
+// instead of through a full useChat round-trip.
+export async function runRemember(
+  input: RememberInput,
+  geocode: Geocode = geocodeInBrowser,
+): Promise<RememberResult> {
+  if (input.category === 'notes') {
+    // A fresh read, not a React snapshot: a note another tab saved a moment
+    // ago is kept.
+    const added = addNote(readMemory(), input.value.text);
+    if (!replaceMemory(added.memory)) return { ok: false, error: MEMORY_WRITE_ERROR };
+    return {
+      ok: true,
+      output: { saved: true, category: 'notes', value: { text: added.text }, dropped: added.dropped },
+    };
+  }
+  const resolved = await resolveRememberInput(input, geocode);
+  if (!resolved.ok) return resolved;
+  if (!saveFact(resolved.fact)) return { ok: false, error: MEMORY_WRITE_ERROR };
+  return { ok: true, output: { saved: true, ...resolved.fact } };
 }
 
-export function runForget({ category }: ForgetInput): ForgetOutput | null {
-  return removeFact(category) ? { removed: true, category } : null;
+export type ForgetResult = { ok: true; output: ForgetOutput } | { ok: false; error: string };
+
+// A note can be missing (the model misremembered it), so forget now reports
+// an error with its reason, like remember does.
+export function runForget(input: ForgetInput): ForgetResult {
+  if (input.category === 'notes') {
+    const removed = removeNote(readMemory(), input.note);
+    if (!removed.ok) return removed;
+    if (!replaceMemory(removed.memory)) return { ok: false, error: MEMORY_WRITE_ERROR };
+    return { ok: true, output: { removed: true, category: 'notes', note: removed.removed } };
+  }
+  if (!removeFact(input.category)) return { ok: false, error: MEMORY_WRITE_ERROR };
+  return { ok: true, output: { removed: true, category: input.category } };
 }
 
 // Steps add up across the automatic round-trips of ONE assistant message.

@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { readMemory } from '@/lib/memory';
-import { MAX_STEPS_PER_MESSAGE, runForget, runRemember, shouldAutoSend } from './client-tools';
+import type { Geocode } from '@/lib/geocode';
+import { MEMORY_STORAGE_KEY, readMemory } from '@/lib/memory';
+import {
+  MAX_STEPS_PER_MESSAGE,
+  MEMORY_WRITE_ERROR,
+  runForget,
+  runRemember,
+  shouldAutoSend,
+} from './client-tools';
 import type { ChatUIMessage } from './types';
 
 type Part = ChatUIMessage['parts'][number];
@@ -8,7 +15,7 @@ type Part = ChatUIMessage['parts'][number];
 const stepStart = { type: 'step-start' } as Part;
 
 function rememberPart(id: string, state: 'input-available' | 'output-available'): Part {
-  const input = { category: 'travelParty', value: 'travels with a 3-year-old' };
+  const input = { category: 'interests', value: ['museums'] };
   return (
     state === 'output-available'
       ? { type: 'tool-remember', toolCallId: id, state, input, output: { saved: true, ...input } }
@@ -29,31 +36,125 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+const geocodeKrakow: Geocode = async () => ({
+  found: true,
+  latitude: 50.06,
+  longitude: 19.94,
+  name: 'Kraków',
+  country: 'Poland',
 });
 
 describe('runRemember / runForget', () => {
-  it('saves the fact and returns the tool output', () => {
-    expect(runRemember({ category: 'homeCity', value: 'Kraków' })).toEqual({
-      saved: true,
-      category: 'homeCity',
-      value: 'Kraków',
+  it('saves the geocoder’s city and returns the tool output', async () => {
+    await expect(
+      runRemember({ category: 'homeCity', value: { city: 'krakow' } }, geocodeKrakow),
+    ).resolves.toEqual({
+      ok: true,
+      output: { saved: true, category: 'homeCity', value: { name: 'Kraków', country: 'Poland' } },
     });
-    expect(readMemory()).toEqual({ homeCity: 'Kraków' });
+    expect(readMemory()).toEqual({ homeCity: { name: 'Kraków', country: 'Poland' } });
   });
 
-  it('removes the fact and returns the tool output', () => {
-    runRemember({ category: 'homeCity', value: 'Kraków' });
-    expect(runForget({ category: 'homeCity' })).toEqual({ removed: true, category: 'homeCity' });
+  it('saves tags as they are, without the geocoder', async () => {
+    const geocode = vi.fn();
+    await runRemember({ category: 'avoid', value: ['crowds', 'heat'] }, geocode);
+    expect(readMemory()).toEqual({ avoid: ['crowds', 'heat'] });
+    expect(geocode).not.toHaveBeenCalled();
+  });
+
+  // The model must hear the truth, or it tells the user "remembered".
+  it('saves nothing and reports it when the city is not found', async () => {
+    const result = await runRemember(
+      { category: 'homeCity', value: { city: 'Atlantis' } },
+      async () => ({ found: false }),
+    );
+    expect(result).toEqual({ ok: false, error: 'City not found: Atlantis' });
     expect(readMemory()).toEqual({});
   });
 
-  // The model must hear about a failed write, or it tells the user
-  // "remembered" about something that is gone after a reload.
-  it('returns null when the browser refuses to store it', () => {
+  it('reports a storage error when the browser refuses to store it', async () => {
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new DOMException('full', 'QuotaExceededError');
     });
-    expect(runRemember({ category: 'homeCity', value: 'Kraków' })).toBeNull();
+    await expect(runRemember({ category: 'interests', value: ['food'] })).resolves.toEqual({
+      ok: false,
+      error: MEMORY_WRITE_ERROR,
+    });
+  });
+
+  // Review Focus 2: onToolCall is awaited by useChat's stream reader, so a
+  // hung geocoder would freeze the chat on "Remembering…".
+  it('gives the real geocoder a timeout', async () => {
+    const fetchMock = vi.fn<typeof fetch>(
+      async () =>
+        ({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            results: [{ latitude: 50.06, longitude: 19.94, name: 'Kraków', country: 'Poland' }],
+          }),
+        }) as Response,
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    await runRemember({ category: 'homeCity', value: { city: 'Kraków' } });
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ signal: expect.anything() }));
+  });
+
+  it('removes the fact and returns the tool output', async () => {
+    await runRemember({ category: 'interests', value: ['food'] });
+    expect(runForget({ category: 'interests' })).toEqual({
+      ok: true,
+      output: { removed: true, category: 'interests' },
+    });
+    expect(readMemory()).toEqual({});
+  });
+
+  it('saves a note without the geocoder and reports the oldest it dropped', async () => {
+    const geocode = vi.fn();
+    const tenNotes = Array.from({ length: 10 }, (_, i) => `note ${i}`);
+    localStorage.setItem(MEMORY_STORAGE_KEY, JSON.stringify({ notes: tenNotes }));
+    await expect(
+      runRemember({ category: 'notes', value: { text: 'newest' } }, geocode),
+    ).resolves.toEqual({
+      ok: true,
+      output: { saved: true, category: 'notes', value: { text: 'newest' }, dropped: 'note 0' },
+    });
+    expect(readMemory().notes).toEqual([...tenNotes.slice(1), 'newest']);
+    expect(geocode).not.toHaveBeenCalled();
+  });
+
+  // Review Focus 2: the write starts from a fresh read, not a React snapshot.
+  it('keeps a note another tab saved a moment ago', async () => {
+    readMemory(); // warm the cache with "empty", as an open tab would have
+    localStorage.setItem(MEMORY_STORAGE_KEY, JSON.stringify({ notes: ['vegetarian'] }));
+    await runRemember({ category: 'notes', value: { text: 'jazz cafés' } });
+    expect(readMemory().notes).toEqual(['vegetarian', 'jazz cafés']);
+  });
+
+  it('forgets a note, or tells the model it is not saved', async () => {
+    await runRemember({ category: 'notes', value: { text: 'Vegetarian' } });
+    expect(runForget({ category: 'notes', note: 'loves steak' })).toEqual({
+      ok: false,
+      error: 'No saved note matches: loves steak',
+    });
+    expect(runForget({ category: 'notes', note: 'vegetarian' })).toEqual({
+      ok: true,
+      output: { removed: true, category: 'notes', note: 'Vegetarian' },
+    });
+    expect(readMemory()).toEqual({});
+  });
+
+  it('reports a storage error when the browser refuses a note', async () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('full', 'QuotaExceededError');
+    });
+    await expect(runRemember({ category: 'notes', value: { text: 'vegetarian' } })).resolves.toEqual({
+      ok: false,
+      error: MEMORY_WRITE_ERROR,
+    });
   });
 });
 

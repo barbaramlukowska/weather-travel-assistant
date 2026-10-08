@@ -72,16 +72,26 @@ describe('MemoryToolCall states', () => {
       <MemoryToolCall
         part={{
           state: 'output-available',
-          output: { saved: true, category: 'climate', value: 'dislikes heat above 28°C' },
+          output: { saved: true, category: 'climate', value: { maxComfortC: 28 } },
         }}
         {...labels}
       />,
     );
-    expect(screen.getByText('dislikes heat above 28°C')).toBeInTheDocument();
+    expect(screen.getByText('Climate — comfortable up to 28 °C')).toBeInTheDocument();
   });
 
   it('shows an error chip when the browser could not save', () => {
     render(<MemoryToolCall part={{ state: 'output-error', errorText: 'blocked' }} {...labels} />);
     expect(screen.getByText("Couldn't save that preference")).toBeInTheDocument();
+  });
+
+  it('shows the memory card for a saved note', () => {
+    render(
+      <MemoryToolCall
+        part={{ state: 'output-available', output: { saved: true, category: 'notes', value: { text: 'vegetarian' } } }}
+        {...labels}
+      />,
+    );
+    expect(screen.getByText('Note — vegetarian')).toBeInTheDocument();
   });
 });

@@ -1,8 +1,11 @@
-import { memorySchema, type Memory, type MemoryCategory } from './schema';
+import { memorySchema, type Memory, type MemoryCategory, type MemoryFact } from './schema';
 
-// Versioned key: a future schema change gets a new key instead of misreading
-// old data. Anything that fails the schema is dropped on read.
-export const MEMORY_STORAGE_KEY = 'wta.memory.v1';
+// Versioned key: a schema change gets a new key instead of misreading old
+// data. Anything that fails the schema is dropped on read.
+export const MEMORY_STORAGE_KEY = 'wta.memory.v2';
+// v1 held free text (spec 2026-10-08). Nothing reads it any more, but its
+// sentences must not linger in the browser — not even after "Clear all".
+const LEGACY_STORAGE_KEY = 'wta.memory.v1';
 const CHANGE_EVENT = 'wta:memorychange';
 
 // One frozen object for "nothing saved", shared by the server snapshot and
@@ -38,6 +41,14 @@ export function readMemory(): Memory {
   const storage = getStorage();
   if (!storage) return EMPTY_MEMORY;
 
+  // Own try: a failing cleanup must not hide a valid v2 value.
+  try {
+    // A cheap check on every read; the removal itself happens once.
+    if (storage.getItem(LEGACY_STORAGE_KEY) !== null) storage.removeItem(LEGACY_STORAGE_KEY);
+  } catch {
+    // Storage blocked: nothing to clean up.
+  }
+
   let raw: string | null;
   try {
     raw = storage.getItem(MEMORY_STORAGE_KEY);
@@ -64,7 +75,7 @@ export function readMemory(): Memory {
   return memory;
 }
 
-function writeMemory(next: Memory): boolean {
+function writeMemory(next: unknown): boolean {
   // The store guards its own invariant instead of trusting callers: whatever
   // lands here is read back into every future system prompt.
   const parsed = memorySchema.safeParse(next);
@@ -88,9 +99,13 @@ function writeMemory(next: Memory): boolean {
 
 // Every write starts from a fresh read, not from a React snapshot, so a value
 // another tab saved a moment ago is kept instead of overwritten.
-export function saveFact(category: MemoryCategory, value: string): boolean {
-  const next: Memory = { ...readMemory() };
-  next[category] = value;
+export function saveFact(fact: MemoryFact): boolean {
+  return writeMemory({ ...readMemory(), [fact.category]: fact.value });
+}
+
+// For operations computed outside the store (lib/memory/notes.ts): the
+// caller starts from a fresh readMemory(), and writeMemory still validates.
+export function replaceMemory(next: Memory): boolean {
   return writeMemory(next);
 }
 

@@ -3,10 +3,10 @@
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import { useEffect, useRef, useState } from 'react';
-import { clearMemory, readMemory, removeFact } from '@/lib/memory';
+import { clearMemory, countSavedItems, readMemory, removeFact } from '@/lib/memory';
 import type { ChatUIMessage } from './types';
 import { ChatHeader } from './chat-header';
-import { MEMORY_WRITE_ERROR, runForget, runRemember, shouldAutoSend } from './client-tools';
+import { runForget, runRemember, shouldAutoSend } from './client-tools';
 import { Composer } from './composer';
 import { MessageItem } from './message-item';
 import { EmptyState, ErrorBanner, ThinkingIndicator } from './status';
@@ -24,6 +24,7 @@ const transport = new DefaultChatTransport<ChatUIMessage>({
 
 export function Chat() {
   const [input, setInput] = useState('');
+  const stoppedRef = useRef(false);
   // Typed messages: part types like 'tool-getWeather' now carry the real
   // input/output types from lib/tools.ts all the way into MessageItem.
   const { messages, sendMessage, status, stop, error, regenerate, addToolOutput } =
@@ -32,37 +33,42 @@ export function Chat() {
       // remember/forget have no server-side execute: the server stream ends
       // on the call, onToolCall writes localStorage, and this posts the
       // result back so the model can reply — a second request per such turn.
-      sendAutomaticallyWhen: shouldAutoSend,
-      onToolCall({ toolCall }) {
+      // After Stop, a still-awaited geocoder call resolves later and calls
+      // addToolOutput, which would trigger a paid request the user cancelled.
+      // The ref is read at call time (useChat options are captured once).
+      sendAutomaticallyWhen: (options) => !stoppedRef.current && shouldAutoSend(options),
+      async onToolCall({ toolCall }) {
         // Must come first, or toolCall.toolName does not narrow (AI SDK
         // docs, "Chatbot Tool Usage").
         if (toolCall.dynamic) return;
         const { toolCallId } = toolCall;
 
-        // addToolOutput is not awaited: awaiting it inside onToolCall can
-        // deadlock the stream that is still delivering this call.
+        // runRemember IS awaited: a city waits for the geocoder, and the
+        // result must exist before it can be posted. addToolOutput is NOT
+        // awaited: awaiting it inside onToolCall can deadlock the stream
+        // that is still delivering this call.
         if (toolCall.toolName === 'remember') {
-          const output = runRemember(toolCall.input);
-          if (output) {
-            addToolOutput({ tool: 'remember', toolCallId, output });
+          const result = await runRemember(toolCall.input);
+          if (result.ok) {
+            addToolOutput({ tool: 'remember', toolCallId, output: result.output });
           } else {
             addToolOutput({
               tool: 'remember',
               toolCallId,
               state: 'output-error',
-              errorText: MEMORY_WRITE_ERROR,
+              errorText: result.error,
             });
           }
         } else if (toolCall.toolName === 'forget') {
-          const output = runForget(toolCall.input);
-          if (output) {
-            addToolOutput({ tool: 'forget', toolCallId, output });
+          const result = runForget(toolCall.input);
+          if (result.ok) {
+            addToolOutput({ tool: 'forget', toolCallId, output: result.output });
           } else {
             addToolOutput({
               tool: 'forget',
               toolCallId,
               state: 'output-error',
-              errorText: MEMORY_WRITE_ERROR,
+              errorText: result.error,
             });
           }
         }
@@ -80,6 +86,7 @@ export function Chat() {
 
   const handleSubmit = () => {
     if (!input.trim()) return;
+    stoppedRef.current = false;
     sendMessage({ text: input });
     setInput('');
   };
@@ -89,7 +96,7 @@ export function Chat() {
       <ChatHeader
         isDark={isDark}
         onToggleTheme={toggleTheme}
-        memoryCount={Object.keys(memory).length}
+        memoryCount={countSavedItems(memory)}
         isMemoryOpen={isMemoryOpen}
         onToggleMemory={() => setMemoryOpen((open) => !open)}
       />
@@ -98,6 +105,7 @@ export function Chat() {
         <MemoryPanel
           memory={memory}
           onForget={removeFact}
+          onForgetNote={(note) => runForget({ category: 'notes', note })}
           onClear={clearMemory}
           onClose={() => setMemoryOpen(false)}
         />
@@ -114,7 +122,10 @@ export function Chat() {
           {status === 'submitted' && <ThinkingIndicator />}
 
           {error && (
-            <ErrorBanner message={error.message} onRetry={() => regenerate()} />
+            <ErrorBanner message={error.message} onRetry={() => {
+                stoppedRef.current = false;
+                regenerate();
+              }} />
           )}
 
           <div ref={endRef} />
@@ -126,7 +137,10 @@ export function Chat() {
         isBusy={isBusy}
         onInputChange={setInput}
         onSubmit={handleSubmit}
-        onStop={() => stop()}
+        onStop={() => {
+          stoppedRef.current = true;
+          stop();
+        }}
       />
     </div>
   );

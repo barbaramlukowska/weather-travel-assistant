@@ -8,8 +8,8 @@ export const PRUNED_OUTPUT = { note: 'Older tool result omitted to save context.
 // Tools whose output is already small enough to send in full. planTrip is a
 // city, one or two sentences and 3-6 packing items — compressing it would save
 // a few dozen characters and risk losing a fact the user asks about later.
-// remember/forget results are a category and at most 120 characters — already
-// smaller than any digest would be.
+// remember/forget results are a category and a small fixed-shape value —
+// already smaller than any digest would be.
 export const KEEP_RAW: readonly string[] = ['planTrip', 'remember', 'forget'];
 
 type Digester = (output: unknown) => string | null;
