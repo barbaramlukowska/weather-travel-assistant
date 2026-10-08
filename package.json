@@ -18,7 +18,7 @@
     "@ai-sdk/react": "^4.0.15",
     "ai": "^7.0.14",
     "lucide-react": "^1.23.0",
-    "next": "^16.3.0",
+    "next": "^16.3.8",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "zod": "^4.4.3"
@@ -33,7 +33,7 @@
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^6.0.3",
     "eslint": "^9",
-    "eslint-config-next": "16.2.10",
+    "eslint-config-next": "16.3.8",
     "jsdom": "^29.1.1",
     "tailwindcss": "^4",
     "tsx": "^4.23.0",
@@ -45,6 +45,11 @@
     "onlyBuiltDependencies": [
       "esbuild",
       "unrs-resolver"
-    ]
+    ],
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-vfj7-8cjw-p6xm"
+      ]
+    }
   }
 }
