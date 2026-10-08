@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { getJudgeModel } from './model';
+import { getChatModel, getJudgeModel } from './model';
 
 // The provider SDKs need a key only when a request is actually sent, so
 // constructing a model in a test is free and offline.
-const ENV_KEYS = ['JUDGE_PROVIDER', 'JUDGE_MODEL'] as const;
+const ENV_KEYS = ['JUDGE_PROVIDER', 'JUDGE_MODEL', 'LLM_PROVIDER', 'CHAT_MODEL'] as const;
 const saved = new Map<string, string | undefined>();
 
 afterEach(() => {
@@ -53,5 +53,26 @@ describe('getJudgeModel', () => {
       if (before === undefined) delete process.env.LLM_PROVIDER;
       else process.env.LLM_PROVIDER = before;
     }
+  });
+});
+
+describe('getChatModel', () => {
+  it('defaults to gpt-4o-mini', () => {
+    setEnv('LLM_PROVIDER', undefined);
+    setEnv('CHAT_MODEL', undefined);
+    expect(getChatModel().modelId).toBe('gpt-4o-mini');
+  });
+
+  // Lets an eval run measure a candidate model without a code change.
+  it('honours CHAT_MODEL for the same provider', () => {
+    setEnv('LLM_PROVIDER', undefined);
+    setEnv('CHAT_MODEL', 'gpt-5.4-nano');
+    expect(getChatModel().modelId).toBe('gpt-5.4-nano');
+  });
+
+  it('keeps the Gemini default when only the provider changes', () => {
+    setEnv('LLM_PROVIDER', 'google');
+    setEnv('CHAT_MODEL', undefined);
+    expect(getChatModel().modelId).toBe('gemini-2.5-flash');
   });
 });

@@ -1,13 +1,16 @@
 import { google } from '@ai-sdk/google';
 import { openai } from '@ai-sdk/openai';
 
-const provider = process.env.LLM_PROVIDER ?? 'openai';
-
+// Env is read per call, like getJudgeModel: CHAT_MODEL lets an eval run
+// measure a candidate model (`CHAT_MODEL=gpt-5.4-nano pnpm eval`) with no
+// code change, and tests can vary it.
 export function getChatModel() {
+  const provider = process.env.LLM_PROVIDER ?? 'openai';
   if (provider === 'google') {
-    return google('gemini-2.5-flash');
+    return google(process.env.CHAT_MODEL ?? 'gemini-2.5-flash');
   }
-  return openai('gpt-4o-mini'); // default: OpenAI (also covers unknown values)
+  // default: OpenAI (also covers unknown values)
+  return openai(process.env.CHAT_MODEL ?? 'gpt-4o-mini');
 }
 
 

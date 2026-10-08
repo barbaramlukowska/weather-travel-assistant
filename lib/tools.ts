@@ -1,5 +1,6 @@
 import { tool, type InferUITools, type UIDataTypes, type UIMessage } from 'ai';
 import { z } from 'zod';
+import { memoryCategorySchema, memoryValueSchema } from './memory';
 
 // The shapes our tools return. Each is a discriminated union on `found`, so
 // both the model and the UI can tell "no data" apart from real results.
@@ -127,8 +128,10 @@ const tripPlanSchema = z.object({
     .min(3)
     .max(6)
     .describe(
-      'Items to pack, each justified by the forecast (e.g. "umbrella" only ' +
-        'if rain is likely, "sunscreen" only if sunny). Short phrases.',
+      'Items to pack, each justified by the forecast or by the known user ' +
+        'preferences (e.g. "umbrella" only if rain is likely, "sunscreen" ' +
+        'only if sunny, "a dog lead" for someone who travels with their dog). ' +
+        'Short phrases.',
     ),
 });
 
@@ -136,8 +139,8 @@ const planTrip = tool({
   description:
     'Present a trip-plan card for a city. Use whenever the user asks to plan ' +
     'a trip or what a trip to a place will be like. Call getForecast for the ' +
-    'city FIRST, then fill in the summary and packing list from that ' +
-    'forecast data.',
+    'city FIRST, then fill in the summary from that forecast data, and the ' +
+    'packing list from the forecast and the known user preferences.',
   inputSchema: tripPlanSchema,
   // Pass-through: the model's structured input IS the card data.
   execute: async (input): Promise<TripPlanOutput> => ({ found: true, ...input }),
@@ -300,7 +303,61 @@ const getForecast = tool({
   },
 });
 
-export const tools = { getWeather, getForecast, getAirQuality, planTrip };
+// --- Preference memory (4.2) ---
+// The first tools that CHANGE state. They have no execute on purpose: the
+// server stream ends on the call, the browser writes localStorage in useChat's
+// onToolCall and posts the result back (a second request). Without execute
+// the SDK requires an outputSchema — which is also what types the memory
+// cards and addToolOutput end to end.
+// The results do not use the `found` discriminator: `found` means "I looked a
+// city up and it isn't there", and a write cannot fail to find anything.
+export const rememberInputSchema = z.object({
+  category: memoryCategorySchema,
+  value: memoryValueSchema.describe(
+    'The preference as a short phrase, max 120 characters, e.g. "travels with a 3-year-old"',
+  ),
+});
+export type RememberInput = z.infer<typeof rememberInputSchema>;
+
+export const rememberOutputSchema = z.object({
+  saved: z.literal(true),
+  category: memoryCategorySchema,
+  value: z.string(),
+});
+export type RememberOutput = z.infer<typeof rememberOutputSchema>;
+
+export const forgetInputSchema = z.object({ category: memoryCategorySchema });
+export type ForgetInput = z.infer<typeof forgetInputSchema>;
+
+export const forgetOutputSchema = z.object({
+  removed: z.literal(true),
+  category: memoryCategorySchema,
+});
+export type ForgetOutput = z.infer<typeof forgetOutputSchema>;
+
+const remember = tool({
+  description:
+    'Save a LASTING preference about the user so future conversations can ' +
+    'use it. Categories: homeCity (where the user lives), climate (weather or ' +
+    'temperatures they like or dislike), travelParty (who they travel with: ' +
+    'kids, partner, pets), interests (what they enjoy on trips), avoid (things ' +
+    'they want to avoid). Each category holds ONE value and saving replaces ' +
+    'the old one — to add to an existing value, save the combined value. ' +
+    'Never save one-off trip details such as dates, flights or a single destination.',
+  inputSchema: rememberInputSchema,
+  outputSchema: rememberOutputSchema,
+});
+
+const forget = tool({
+  description:
+    'Erase one saved preference when the user asks you to forget it, or says ' +
+    'it is no longer true without giving a replacement. To change a value, ' +
+    'call remember instead.',
+  inputSchema: forgetInputSchema,
+  outputSchema: forgetOutputSchema,
+});
+
+export const tools = { getWeather, getForecast, getAirQuality, planTrip, remember, forget };
 
 // Message type derived from the tools themselves: part types like
 // 'tool-getWeather' carry the real input/output types end to end, so the

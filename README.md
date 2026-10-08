@@ -13,12 +13,17 @@ management, structured/generative UI, evals, and application security.
 - **Streaming chat** — the model's reply appears gradually, word by word, instead
   of all at once.
 - **Multi-step agent (tool use)** — the model plans which tools it needs, calls them
-  in sequence, and synthesizes one answer. Four tools, all grounded in **real data**
-  so numbers are never made up:
+  in sequence, and synthesizes one answer. Six tools — four grounded in **real data**
+  so numbers are never made up, two for memory:
   - `getWeather` — current conditions (Open-Meteo)
   - `getForecast` — 7-day daily forecast
   - `getAirQuality` — US AQI, PM2.5, PM10
   - `planTrip` — a structured trip-plan card, filled from the forecast
+  - `remember` / `forget` — lasting user preferences (home city, climate, travel
+    party, interests, things to avoid), executed in the browser
+- **Preference memory** — saved in `localStorage`, sent with each request and
+  injected into the system prompt as a tagged data block; a header panel lists
+  everything stored and deletes one fact or all of them.
 - **Generative UI** — each tool renders its own React card (weather, forecast strip,
   colour-coded AQI, trip plan) via a typed state machine (loading → card → not-found → error).
 - **Context management** — old tool results are pruned from what's sent to the model
@@ -140,6 +145,7 @@ lib/
   tools.ts            # the four tools + Zod schemas + inferred UI types
   prompt.ts           # single source of truth for the system prompt
   context/            # two-level context compaction (digest, tokens, summarize, compact)
+  memory/             # preference memory: closed-category schema + localStorage store
   rate-limit.ts       # per-IP sliding-window rate limiter
 components/chat/      # streamed message list + per-tool cards (with tests)
 evals/                # agent behaviour + adversarial eval suite, plus the LLM judge

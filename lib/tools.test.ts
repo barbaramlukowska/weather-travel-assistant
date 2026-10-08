@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toolOutputSchemas } from './tools';
+import { forgetInputSchema, rememberInputSchema, toolOutputSchemas, tools } from './tools';
 
 describe('toolOutputSchemas', () => {
   it('accepts a real getWeather result', () => {
@@ -59,5 +59,27 @@ describe('toolOutputSchemas', () => {
 
   it('rejects a shape that is not a tool output at all', () => {
     expect(toolOutputSchemas.getWeather.safeParse({ foo: 1 }).success).toBe(false);
+  });
+});
+
+describe('memory tools', () => {
+  // No execute = the server stream ends on the call and the browser runs it
+  // (useChat onToolCall). A server-side execute here would silently move the
+  // write to the server, where localStorage does not exist.
+  it('have no server-side execute', () => {
+    expect(tools.remember.execute).toBeUndefined();
+    expect(tools.forget.execute).toBeUndefined();
+  });
+
+  it('accept only the closed set of categories', () => {
+    expect(rememberInputSchema.safeParse({ category: 'climate', value: 'hates heat' }).success).toBe(true);
+    expect(rememberInputSchema.safeParse({ category: 'favouriteFood', value: 'pierogi' }).success).toBe(false);
+    expect(forgetInputSchema.safeParse({ category: 'homeCity' }).success).toBe(true);
+    expect(forgetInputSchema.safeParse({ category: 'everything' }).success).toBe(false);
+  });
+
+  it('reject an empty or oversized value instead of storing it', () => {
+    expect(rememberInputSchema.safeParse({ category: 'avoid', value: '  ' }).success).toBe(false);
+    expect(rememberInputSchema.safeParse({ category: 'avoid', value: 'x'.repeat(121) }).success).toBe(false);
   });
 });

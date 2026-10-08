@@ -2,11 +2,11 @@ import { generateText, stepCountIs, type ModelMessage } from 'ai';
 import { compactContext } from '../lib/context';
 import { getChatModel } from '../lib/model';
 import { buildSystemPrompt } from '../lib/prompt';
-import { tools } from '../lib/tools';
 import { EVAL_FLAGS, parseEvalArgs, selectById } from './args';
 import { cases, type EvalCase } from './cases';
 import { judgeAnswer } from './judge';
 import { formatJudgeFailure } from './judge-verdicts';
+import { createEvalMemory } from './memory-tools';
 
 type RecordedCall = { toolName: string; input: Record<string, unknown> };
 
@@ -16,6 +16,9 @@ async function runCase(c: EvalCase, noJudge: boolean): Promise<string[]> {
   const messages: ModelMessage[] = [];
   let calls: RecordedCall[] = [];
   let text = '';
+  // Fresh per case, seeded from the case: one case's memory never leaks
+  // into the next.
+  const { tools, memory } = createEvalMemory(c.initialMemory);
 
   for (const turn of c.turns) {
     messages.push({ role: 'user', content: turn });
@@ -30,7 +33,7 @@ async function runCase(c: EvalCase, noJudge: boolean): Promise<string[]> {
       // Same model, prompt, tools and step budget as the app — the point of
       // evals is to test the agent users talk to, not a copy.
       model: getChatModel(),
-      system: buildSystemPrompt(),
+      system: buildSystemPrompt(memory),
       messages: compacted,
       tools,
       stopWhen: stepCountIs(5),
@@ -68,12 +71,32 @@ async function runCase(c: EvalCase, noJudge: boolean): Promise<string[]> {
   for (const check of c.expectToolInput ?? []) {
     const call = calls.find((x) => x.toolName === check.tool);
     const value = call?.input[check.field];
-    if (typeof value !== 'string' || !check.match.test(value)) {
+    // Non-string fields (planTrip.packingList) are matched as their JSON text.
+    const text = typeof value === 'string' || value === undefined ? value : JSON.stringify(value);
+    if (text === undefined || !check.match.test(text)) {
       failures.push(
         `${check.tool}.${check.field} = ${JSON.stringify(value)} does not match ${check.match}`,
       );
     }
   }
+  for (const check of c.expectMemory ?? []) {
+    const value = memory[check.category];
+    if (check.match === null) {
+      if (value !== undefined) {
+        failures.push(`memory.${check.category} should be empty, is ${JSON.stringify(value)}`);
+      }
+    } else if (value === undefined || !check.match.test(value)) {
+      failures.push(
+        `memory.${check.category} = ${JSON.stringify(value)} does not match ${check.match}`,
+      );
+    }
+  }
+
+  for (const re of c.answerOrToolInputMustMatch ?? []) {
+    const haystack = [text, ...calls.map((call) => JSON.stringify(call.input))].join('\n');
+    if (!re.test(haystack)) failures.push(`neither the answer nor a tool input matches ${re}`);
+  }
+
   for (const re of c.answerMustMatch ?? []) {
     if (!re.test(text)) failures.push(`answer does not match ${re}: "${text.slice(0, 100)}"`);
   }
