@@ -2,6 +2,7 @@ import { getChatModel } from '@/lib/model';
 import { compactContext } from '@/lib/context';
 import { tools, type ChatUIMessage } from '@/lib/tools';
 import { buildSystemPrompt } from '@/lib/prompt';
+import { memorySchema } from '@/lib/memory';
 import {
   streamText,
   smoothStream,
@@ -38,10 +39,13 @@ function toClientErrorMessage(error: unknown): string {
   return 'An error occurred.';
 }
 
-// Validate at the trust boundary, but only the contract we depend on (a
-// non-empty messages array) — the AI SDK owns and validates the rest.
+// Validate at the trust boundary, but only the contract we depend on — the AI
+// SDK owns and validates the messages themselves. `memory` goes straight into
+// the system prompt, and anyone can POST here, so it gets the same schema as
+// the browser store. Optional: an empty memory and older clients send none.
 const requestSchema = z.object({
   messages: z.array(z.unknown()).min(1).max(MAX_MESSAGES),
+  memory: memorySchema.optional(),
 });
 
 export async function POST(req: Request) {
@@ -69,7 +73,10 @@ export async function POST(req: Request) {
   const parsed = requestSchema.safeParse(body);
   if (!parsed.success) {
     return Response.json(
-      { error: 'Invalid request: expected a non-empty "messages" array' },
+      {
+        error:
+          'Invalid request: expected a non-empty "messages" array and an optional valid "memory" object',
+      },
       { status: 400 },
     );
   }
@@ -95,7 +102,7 @@ export async function POST(req: Request) {
     // Accuracy comes from the getWeather tool, not the model's own knowledge,
     // so a small, fast model is enough for correct weather.
     model: getChatModel(),
-    system: buildSystemPrompt(),
+    system: buildSystemPrompt(parsed.data.memory),
     messages: compacted,
     tools,
     // The agent loop: without this the model calls the tool but never writes

@@ -1,17 +1,27 @@
 import {
   AlertCircle,
+  Brain,
   CalendarDays,
   Cloud,
   Plane,
   Wind,
   type LucideIcon,
 } from 'lucide-react';
+import { isStaticToolUIPart } from 'ai';
 import type { ReactNode } from 'react';
-import type { ChatTools, ChatUIMessage, ToolOutput, ToolPart } from './types';
+import type {
+  ChatToolPart,
+  ChatTools,
+  ChatUIMessage,
+  MemoryToolPart,
+  ToolOutput,
+  ToolPart,
+} from './types';
 import { WeatherCard } from './weather-card';
 import { ForecastCard } from './forecast-card';
 import { AirQualityCard } from './air-quality-card';
 import { TripPlanCard } from './trip-plan-card';
+import { MemoryCard } from './memory-card';
 
 interface ChipProps {
   icon: LucideIcon;
@@ -86,8 +96,34 @@ export function ToolCall<T extends ToolOutput>({
   return null;
 }
 
-// One entry per tool. The mapped type ties each renderCard to that tool's
-// real output type, and a tool without an entry is a compile error.
+// The memory tools' own state machine: pending chip → memory card → error
+// chip. No "not found" branch — a write has nothing to look up.
+interface MemoryToolCallProps {
+  part: MemoryToolPart;
+  pendingLabel: string;
+  errorLabel: string;
+}
+
+export function MemoryToolCall({ part, pendingLabel, errorLabel }: MemoryToolCallProps) {
+  if (part.state === 'input-streaming' || part.state === 'input-available') {
+    return <Chip icon={Brain}>{pendingLabel}</Chip>;
+  }
+  if (part.state === 'output-available' && part.output) {
+    return <MemoryCard data={part.output} />;
+  }
+  if (part.state === 'output-error') {
+    return (
+      <Chip icon={AlertCircle} variant="error">
+        {errorLabel}
+      </Chip>
+    );
+  }
+  return null;
+}
+
+// One entry per lookup tool. The mapped type ties each renderCard to that
+// tool's real output type. Memory tools are left out on purpose (no city, no
+// "not found"); the completeness guarantee lives in renderToolPart instead.
 interface ToolCardConfig<T extends ToolOutput> {
   icon: LucideIcon;
   loadingLabel: string;
@@ -95,8 +131,10 @@ interface ToolCardConfig<T extends ToolOutput> {
   renderCard: (output: Extract<T, { found: true }>) => ReactNode;
 }
 
+type LookupToolName = Exclude<keyof ChatTools, 'remember' | 'forget'>;
+
 const TOOL_CARDS: {
-  [N in keyof ChatTools]: ToolCardConfig<ChatTools[N]['output']>;
+  [N in LookupToolName]: ToolCardConfig<ChatTools[N]['output']>;
 } = {
   getWeather: {
     icon: Cloud,
@@ -124,12 +162,9 @@ const TOOL_CARDS: {
   },
 };
 
-// The switch narrows part.type, so each ToolCall receives exactly its tool's
+// The switch narrows part.type, so each card receives exactly its tool's
 // input/output types — no casts anywhere on this path.
-function renderToolPart(
-  part: ChatUIMessage['parts'][number],
-  key: number,
-): ReactNode {
+function renderToolPart(part: ChatToolPart, key: number): ReactNode {
   switch (part.type) {
     case 'tool-getWeather':
       return <ToolCall key={key} part={part} {...TOOL_CARDS.getWeather} />;
@@ -139,8 +174,31 @@ function renderToolPart(
       return <ToolCall key={key} part={part} {...TOOL_CARDS.getAirQuality} />;
     case 'tool-planTrip':
       return <ToolCall key={key} part={part} {...TOOL_CARDS.planTrip} />;
-    default:
-      return null;
+    case 'tool-remember':
+      return (
+        <MemoryToolCall
+          key={key}
+          part={part}
+          pendingLabel="Remembering…"
+          errorLabel="Couldn't save that preference"
+        />
+      );
+    case 'tool-forget':
+      return (
+        <MemoryToolCall
+          key={key}
+          part={part}
+          pendingLabel="Forgetting…"
+          errorLabel="Couldn't forget that preference"
+        />
+      );
+    default: {
+      // Every tool must render somewhere. A new tool without a case leaves
+      // `part` non-never here — a compile error instead of a tool call that
+      // silently disappears from the chat.
+      const unhandled: never = part;
+      return unhandled;
+    }
   }
 }
 
@@ -173,7 +231,8 @@ export function MessageItem({ message }: MessageItemProps) {
           );
         }
 
-        return renderToolPart(part, i);
+        // Steps, reasoning and other non-tool parts render nothing, as before.
+        return isStaticToolUIPart(part) ? renderToolPart(part, i) : null;
       })}
     </div>
   );

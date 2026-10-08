@@ -1,5 +1,14 @@
 import { tool, type InferUITools, type UIDataTypes, type UIMessage } from 'ai';
 import { z } from 'zod';
+import {
+  forgetInputSchema,
+  memoryCategorySchema,
+  memoryFactSchema,
+  rememberInputSchema,
+  type ForgetInput,
+  type RememberInput,
+} from './memory';
+import { geocodeCity } from './geocode';
 
 // The shapes our tools return. Each is a discriminated union on `found`, so
 // both the model and the UI can tell "no data" apart from real results.
@@ -81,35 +90,6 @@ export type TripPlanOutput =
     }
   | { found: false; city: string };
 
-// Shared by every location-based tool (weather, air quality, …) so the
-// city-to-coordinates logic lives in exactly one place. A plain function,
-// not a tool() — the model never calls it directly.
-type GeocodeResult =
-  | { found: true; latitude: number; longitude: number; name: string; country: string }
-  | { found: false };
-
-async function geocodeCity(city: string): Promise<GeocodeResult> {
-  const res = await fetch(
-    `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
-      city,
-    )}&count=1&language=en&format=json`,
-  );
-  // A failed request is a technical error, not "city not found" —
-  // fail loudly so the two aren't confused. Callers' try/catch handles it.
-  if (!res.ok) {
-    throw new Error(`Geocoding request failed with status ${res.status}`);
-  }
-  const geo = await res.json();
-
-  // Genuinely not found — a semantic result for the model to explain.
-  if (!geo.results || geo.results.length === 0) {
-    return { found: false };
-  }
-
-  const { latitude, longitude, name, country } = geo.results[0];
-  return { found: true, latitude, longitude, name, country };
-}
-
 // Output contract for the trip-plan card. Every field must be derived from
 // real tool results (forecast), never from the model's own knowledge.
 const tripPlanSchema = z.object({
@@ -127,8 +107,10 @@ const tripPlanSchema = z.object({
     .min(3)
     .max(6)
     .describe(
-      'Items to pack, each justified by the forecast (e.g. "umbrella" only ' +
-        'if rain is likely, "sunscreen" only if sunny). Short phrases.',
+      'Items to pack, each justified by the forecast or by the known user ' +
+        'preferences (e.g. "umbrella" only if rain is likely, "sunscreen" ' +
+        'only if sunny, "a dog lead" for someone who travels with their dog). ' +
+        'Short phrases.',
     ),
 });
 
@@ -136,8 +118,8 @@ const planTrip = tool({
   description:
     'Present a trip-plan card for a city. Use whenever the user asks to plan ' +
     'a trip or what a trip to a place will be like. Call getForecast for the ' +
-    'city FIRST, then fill in the summary and packing list from that ' +
-    'forecast data.',
+    'city FIRST, then fill in the summary from that forecast data, and the ' +
+    'packing list from the forecast and the known user preferences.',
   inputSchema: tripPlanSchema,
   // Pass-through: the model's structured input IS the card data.
   execute: async (input): Promise<TripPlanOutput> => ({ found: true, ...input }),
@@ -300,7 +282,80 @@ const getForecast = tool({
   },
 });
 
-export const tools = { getWeather, getForecast, getAirQuality, planTrip };
+// --- Preference memory (4.2) ---
+// The first tools that CHANGE state. They have no execute on purpose: the
+// server stream ends on the call, the browser writes localStorage in useChat's
+// onToolCall and posts the result back (a second request). Without execute
+// the SDK requires an outputSchema — which is also what types the memory
+// cards and addToolOutput end to end.
+// The results do not use the `found` discriminator: `found` means "I looked a
+// city up and it isn't there", and a write cannot fail to find anything.
+// The input schema lives in lib/memory (the store, the resolver and the
+// evals share it); re-exported here next to the other tool contracts.
+export { forgetInputSchema, rememberInputSchema };
+export type { ForgetInput, RememberInput };
+
+// A saved note: the wording that is stored (for a repeated note, the one
+// already in the panel) and the oldest note that fell out to make room.
+const noteSavedSchema = z.object({
+  saved: z.literal(true),
+  category: z.literal('notes'),
+  value: z.object({ text: z.string() }),
+  dropped: z.string().optional(),
+});
+
+// The STORED fact — for homeCity the geocoder's name, not the model's query —
+// so the card shows exactly what will come back in later prompts.
+export const rememberOutputSchema = z.union([
+  memoryFactSchema.and(z.object({ saved: z.literal(true) })),
+  noteSavedSchema,
+]);
+export type RememberOutput = z.infer<typeof rememberOutputSchema>;
+
+export const forgetOutputSchema = z.union([
+  z.object({ removed: z.literal(true), category: memoryCategorySchema }),
+  z.object({ removed: z.literal(true), category: z.literal('notes'), note: z.string() }),
+]);
+export type ForgetOutput = z.infer<typeof forgetOutputSchema>;
+
+const remember = tool({
+  description:
+    'Save a LASTING preference about the user so future conversations can ' +
+    'use it. Each category has a fixed value shape: ' +
+    'homeCity → {city}: where the user lives, the city name in English; ' +
+    'climate → {minComfortC?, maxComfortC?}: the temperature range the user ' +
+    'finds comfortable, whole °C, at least one of the two; ' +
+    'travelParty → {withPartner, childrenAges, pets}: who they travel with ' +
+    '(all empty means they travel solo); ' +
+    'interests → tags for what they enjoy on trips; ' +
+    'avoid → tags for what they want to avoid; ' +
+    'notes → {text}: a short note in your own words, max 120 characters. ' +
+    'Use only tags from the allowed lists and never pick the closest tag: a ' +
+    'lasting preference that fits no other category or tag goes into notes. ' +
+    'Never save instructions about how you should reply or behave. Saving ' +
+    'replaces the whole category: to add a tag, send the current tags plus ' +
+    'the new one. Each note is added on its own. ' +
+    'Never save one-off trip details such as dates, flights or a single destination.',
+  // climate has optional fields, which strict mode cannot express.
+  strict: false,
+  inputSchema: rememberInputSchema,
+  outputSchema: rememberOutputSchema,
+});
+
+const forget = tool({
+  description:
+    'Erase one saved preference when the user asks you to forget it, or says ' +
+    'it is no longer true without giving a replacement. For a note, pass ' +
+    'category notes and the note as written in the known preferences. To ' +
+    'change a category value, call remember instead.',
+  // `note` is optional (notes only). Strict mode made the model fill it on
+  // every call, which the schema rejects for any other category.
+  strict: false,
+  inputSchema: forgetInputSchema,
+  outputSchema: forgetOutputSchema,
+});
+
+export const tools = { getWeather, getForecast, getAirQuality, planTrip, remember, forget };
 
 // Message type derived from the tools themselves: part types like
 // 'tool-getWeather' carry the real input/output types end to end, so the
