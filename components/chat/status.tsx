@@ -1,5 +1,6 @@
 import { AlertCircle, Clock } from 'lucide-react';
 import { RATE_LIMIT_MESSAGE } from '@/lib/errors';
+import { describeChatError } from './describe-error';
 
 export function EmptyState() {
   return (
@@ -22,14 +23,19 @@ export function ThinkingIndicator() {
   );
 }
 
-// The message comes from the server (see toClientErrorMessage); fall back to a
-// generic line if it was masked or missing.
+// The text comes from the server (see app/api/chat/client-error.ts) or from
+// the route's JSON body (see describe-error.ts); fall back to a generic line
+// if it was masked or missing.
 interface ErrorBannerProps {
+  error: Error;
   onRetry: () => void;
-  message?: string;
 }
 
-export function ErrorBanner({ onRetry, message }: ErrorBannerProps) {
+export function ErrorBanner({ error, onRetry }: ErrorBannerProps) {
+  const described = describeChatError(error);
+  // "chat_full" never reaches here (ChatSession shows ChatFullNotice), but
+  // if it did, the generic line is the safe fallback.
+  const message = described.kind === 'message' ? described.text : undefined;
   // The daily-quota case can't be retried until the limit resets, so we show a
   // calmer "come back later" icon and hide the retry action for it.
   const isRateLimit = message === RATE_LIMIT_MESSAGE;

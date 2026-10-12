@@ -3,6 +3,7 @@ import { compactContext } from '@/lib/context';
 import { tools, type ChatUIMessage } from '@/lib/tools';
 import { buildSystemPrompt } from '@/lib/prompt';
 import { memorySchema } from '@/lib/memory';
+import { MAX_BODY_CHARS, MAX_MESSAGES } from '@/lib/limits';
 import {
   streamText,
   smoothStream,
@@ -10,33 +11,25 @@ import {
   convertToModelMessages,
   createUIMessageStreamResponse,
   toUIMessageStream,
-  APICallError,
-  RetryError,
 } from 'ai';
 import { z } from 'zod';
-import { RATE_LIMIT_MESSAGE } from '@/lib/errors';
 import { isRateLimited, clientKeyFrom } from '@/lib/rate-limit';
+import { toClientErrorMessage } from './client-error';
 
 export const maxDuration = 30;
 
 // Consumption caps (OWASP LLM10): the endpoint is public and every request
-// spends paid tokens, so both request rate and request size are bounded.
-const MAX_BODY_BYTES = 64 * 1024;
-const MAX_MESSAGES = 60;
+// spends paid tokens, so both request rate and request size are bounded. The
+// limits live in lib/limits.ts, shared with the browser, which warns early —
+// but only this check decides.
 
-// The SDK masks streaming errors as "An error occurred." so internals never
-// leak. We override that only for the free-tier daily quota (HTTP 429), which
-// is worth explaining. The failing model call is wrapped in retries, so the
-// error is usually a RetryError — unwrap it to read the real status code.
-function toClientErrorMessage(error: unknown): string {
-  const apiError = RetryError.isInstance(error) ? error.lastError : error;
-
-  if (APICallError.isInstance(apiError) && apiError.statusCode === 429) {
-    return RATE_LIMIT_MESSAGE;
-  }
-
-  console.error('Chat stream error:', error);
-  return 'An error occurred.';
+// Both limits answer 413 with a code: the browser shows "This chat is full"
+// for it instead of a generic error.
+function chatTooLong() {
+  return Response.json(
+    { error: 'This chat is too long. Start a new chat to keep going.', code: 'chat_too_long' },
+    { status: 413 },
+  );
 }
 
 // Validate at the trust boundary, but only the contract we depend on — the AI
@@ -58,9 +51,7 @@ export async function POST(req: Request) {
 
   // Read as text first so oversized bodies are rejected before JSON.parse.
   const raw = await req.text();
-  if (raw.length > MAX_BODY_BYTES) {
-    return Response.json({ error: 'Request body too large' }, { status: 413 });
-  }
+  if (raw.length > MAX_BODY_CHARS) return chatTooLong();
 
   // Parse defensively: a malformed or non-JSON body must not crash the route.
   let body: unknown;
@@ -68,6 +59,18 @@ export async function POST(req: Request) {
     body = JSON.parse(raw);
   } catch {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
+
+  // Before the schema: 61 messages is a chat that grew too long, not a
+  // malformed request, and must not come back as a confusing 400.
+  if (
+    typeof body === 'object' &&
+    body !== null &&
+    'messages' in body &&
+    Array.isArray(body.messages) &&
+    body.messages.length > MAX_MESSAGES
+  ) {
+    return chatTooLong();
   }
 
   const parsed = requestSchema.safeParse(body);
@@ -86,7 +89,10 @@ export async function POST(req: Request) {
   // Compaction runs on ModelMessages — after conversion, right before the
   // model call. That is the layer where tool results carry a `toolName` and
   // may hold plain text, and it is the same shape the eval runner uses.
-  const modelMessages = await convertToModelMessages(messages);
+  // ignoreIncompleteToolCalls: Stop during a tool call leaves its part at
+  // input-available, and chats are now saved. Without it every later message
+  // of that chat would fail with MissingToolResultsError.
+  const modelMessages = await convertToModelMessages(messages, { ignoreIncompleteToolCalls: true });
   const { messages: compacted, stats } = await compactContext(modelMessages);
 
   // Level 2 costs a model call and up to 8s before the first token, so on
@@ -108,6 +114,10 @@ export async function POST(req: Request) {
     // The agent loop: without this the model calls the tool but never writes
     // the final answer.
     stopWhen: stepCountIs(5),
+    // Stop in the browser (or closing the tab) closes the request. Without
+    // the signal the model would keep generating — and billing — a reply
+    // nobody reads. Compaction keeps its own timeout and gets no signal.
+    abortSignal: req.signal,
     // Re-emit the reply word by word so the UI feels like a smooth typewriter.
     experimental_transform: smoothStream({ delayInMs: 30, chunking: 'word' }),
   });

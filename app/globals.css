@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+/* Tailwind v4 resets buttons to the default arrow cursor (matching native
+   OS controls); a pointer tells users of this web app what is clickable.
+   Disabled buttons keep the arrow, so they don't look actionable. */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
 /* Light theme tokens (default). In Tailwind v4, --color-* / --radius-* keys
    generate matching utilities (bg-primary, text-on-surface, rounded-4xl, ...). */
 @theme {

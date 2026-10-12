@@ -1,4 +1,5 @@
-import { Brain, Moon, Sparkles, Sun } from 'lucide-react';
+import { Brain, Menu, Moon, Sparkles, Sun } from 'lucide-react';
+import { HISTORY_DRAWER_ID } from './chat-history-drawer';
 
 interface ChatHeaderProps {
   isDark: boolean;
@@ -6,6 +7,8 @@ interface ChatHeaderProps {
   memoryCount: number;
   isMemoryOpen: boolean;
   onToggleMemory: () => void;
+  isHistoryOpen: boolean;
+  onOpenHistory: () => void;
 }
 
 export function ChatHeader({
@@ -14,10 +17,23 @@ export function ChatHeader({
   memoryCount,
   isMemoryOpen,
   onToggleMemory,
+  isHistoryOpen,
+  onOpenHistory,
 }: ChatHeaderProps) {
   return (
     <header className="shrink-0 border-b border-outline-variant/20 bg-surface/80 backdrop-blur-xl">
       <div className="mx-auto flex h-16 w-full max-w-2xl items-center gap-2.5 px-5">
+        <button
+          type="button"
+          onClick={onOpenHistory}
+          aria-label="Chat history"
+          aria-expanded={isHistoryOpen}
+          // Only while open: the closed drawer is not in the DOM.
+          aria-controls={isHistoryOpen ? HISTORY_DRAWER_ID : undefined}
+          className="-ml-2 flex h-9 w-9 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-surface-container-high hover:text-primary lg:hidden"
+        >
+          <Menu size={20} />
+        </button>
         <div className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-primary">
           <Sparkles className="text-on-primary" size={20} />
         </div>

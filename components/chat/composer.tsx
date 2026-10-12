@@ -1,14 +1,27 @@
 import { ArrowUp, Square } from 'lucide-react';
+import { MAX_INPUT_CHARS } from '@/lib/limits';
 
 interface ComposerProps {
   input: string;
   isBusy: boolean;
+  // Off in the server-rendered skeleton, before the stored chat is known.
+  disabled?: boolean;
+  // A new chat takes focus right away (after "New chat" or a pick in the drawer).
+  autoFocus?: boolean;
   onInputChange: (value: string) => void;
   onSubmit: () => void;
   onStop: () => void;
 }
 
-export function Composer({ input, isBusy, onInputChange, onSubmit, onStop }: ComposerProps) {
+export function Composer({
+  input,
+  isBusy,
+  disabled = false,
+  autoFocus = false,
+  onInputChange,
+  onSubmit,
+  onStop,
+}: ComposerProps) {
   return (
     <div className="shrink-0 bg-linear-to-t from-surface via-surface to-transparent pt-6">
       <form
@@ -23,7 +36,10 @@ export function Composer({ input, isBusy, onInputChange, onSubmit, onStop }: Com
             value={input}
             onChange={(e) => onInputChange(e.target.value)}
             placeholder="Ask about weather, forecast or air quality in any city…"
-            disabled={isBusy}
+            disabled={isBusy || disabled}
+            autoFocus={autoFocus}
+            // One message cannot eat a chat's whole size budget (lib/limits.ts).
+            maxLength={MAX_INPUT_CHARS}
             aria-label="Message"
             className="flex-1 bg-transparent py-2 text-[15px] placeholder:text-on-surface-variant/40 focus:outline-none disabled:opacity-60"
           />
@@ -40,7 +56,7 @@ export function Composer({ input, isBusy, onInputChange, onSubmit, onStop }: Com
             <button
               type="submit"
               aria-label="Send"
-              disabled={!input.trim()}
+              disabled={disabled || !input.trim()}
               className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg shadow-primary/25 transition-transform hover:scale-105 active:scale-95 disabled:opacity-40 disabled:hover:scale-100"
             >
               <ArrowUp size={22} />

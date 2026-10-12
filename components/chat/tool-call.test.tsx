@@ -1,8 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { Cloud } from 'lucide-react';
-import { MemoryToolCall, ToolCall } from './message-item';
-import type { ToolOutput, ToolPart } from './types';
+import { MemoryToolCall, MessageItem, ToolCall } from './message-item';
+import type { ChatUIMessage, ToolOutput, ToolPart } from './types';
 
 // A minimal stand-in output: real cards render their own fields, but the
 // state machine (loading → card → not-found → error) doesn't care which
@@ -93,5 +93,49 @@ describe('MemoryToolCall states', () => {
       />,
     );
     expect(screen.getByText('Note — vegetarian')).toBeInTheDocument();
+  });
+});
+
+// A saved chat can hold a call cut off by Stop. Outside the message being
+// streamed it will never finish, so it must not pulse as "loading" forever.
+describe('a tool call cut off by Stop', () => {
+  it('shows "Stopped" instead of a loading chip', () => {
+    render(
+      <ToolCall
+        part={{ state: 'input-available', input: { city: 'Lisbon' } }}
+        isStreaming={false}
+        icon={Cloud}
+        loadingLabel="Loading weather for"
+        errorLabel="Weather lookup failed"
+        renderCard={() => null}
+      />,
+    );
+    expect(screen.getByText('Stopped')).toBeInTheDocument();
+    expect(screen.queryByText(/Loading weather for/)).not.toBeInTheDocument();
+  });
+
+  it('shows "Stopped" for a memory tool too', () => {
+    render(
+      <MemoryToolCall
+        part={{ state: 'input-streaming' }}
+        isStreaming={false}
+        pendingLabel="Remembering…"
+        errorLabel="Couldn't save that preference"
+      />,
+    );
+    expect(screen.getByText('Stopped')).toBeInTheDocument();
+  });
+
+  it('is decided per message by MessageItem', () => {
+    const message = {
+      id: 'a1',
+      role: 'assistant',
+      parts: [{ type: 'tool-getWeather', toolCallId: 'c1', state: 'input-available', input: { city: 'Lisbon' } }],
+    } as ChatUIMessage;
+    const { rerender } = render(<MessageItem message={message} isStreaming />);
+    expect(screen.getByText(/Checking weather in/)).toBeInTheDocument();
+
+    rerender(<MessageItem message={message} isStreaming={false} />);
+    expect(screen.getByText('Stopped')).toBeInTheDocument();
   });
 });
