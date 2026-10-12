@@ -27,6 +27,11 @@ management, structured/generative UI, evals, and application security.
 - **Preference memory** — saved in `localStorage`, sent with each request and
   injected into the system prompt as a tagged data block; a header panel lists
   everything stored and deletes one fact or all of them.
+- **Chat history** — up to 30 conversations saved in `localStorage`, with a
+  sidebar (a drawer on phones) to reopen, start or delete them; the last open
+  chat comes back after a reload. A long chat gets a warning, then closes
+  cleanly before the server's size cap, and the common storage problems (full
+  or blocked storage, a chat that can't be opened) are explained in the UI.
 - **Generative UI** — each tool renders its own React card (weather, forecast strip,
   colour-coded AQI, trip plan) via a typed state machine (loading → card → not-found → error).
 - **Context management** — old tool results are pruned from what's sent to the model
@@ -60,7 +65,7 @@ User types a message
         → our code fetches Open-Meteo (geocoding → data)
       → real data returns to the model (agent loop, capped at 5 steps)
     → model streams the final answer / renders a tool card
-  → useChat renders it live in the browser (app/page.tsx)
+  → useChat renders it live in the browser (components/chat/chat-session.tsx)
 ```
 
 The key idea: **accuracy comes from grounding the model with tools**, not from the
@@ -142,7 +147,7 @@ kept server-side, and security response headers.
 ```
 app/
   api/chat/route.ts   # backend: streamText agent loop + request guards
-  page.tsx            # frontend: useChat, message list, theme toggle
+  page.tsx            # renders <Chat /> from components/chat/
   layout.tsx          # fonts, metadata, no-flash theme script
   globals.css         # Tailwind v4 theme tokens (light + dark)
 lib/
@@ -152,8 +157,10 @@ lib/
   context/            # two-level context compaction (digest, tokens, summarize, compact)
   geocode.ts          # city → coordinates + canonical name (server tools and the browser)
   memory/             # preference memory: fixed-shape schema, formatter, resolver, localStorage store
+  history/            # chat history: list, one key per chat, active chat, quota handling
+  limits.ts           # request limits shared by the route and the browser
   rate-limit.ts       # per-IP sliding-window rate limiter
-components/chat/      # streamed message list + per-tool cards (with tests)
+components/chat/      # frame + history sidebar/drawer, chat session (useChat), per-tool cards (with tests)
 evals/                # agent behaviour + adversarial eval suite, plus the LLM judge
                       # (judge.ts calls the model; prompt/verdict/score logic is pure)
 docs/THREAT-MODEL.md  # OWASP threat model & mitigations

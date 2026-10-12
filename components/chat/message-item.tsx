@@ -26,18 +26,19 @@ import { MemoryCard } from './memory-card';
 interface ChipProps {
   icon: LucideIcon;
   children: ReactNode;
-  variant?: 'active' | 'error';
+  variant?: 'active' | 'error' | 'stopped';
 }
 
+const CHIP_STYLES: Record<NonNullable<ChipProps['variant']>, string> = {
+  active: 'border-outline-variant/40 bg-surface-container-low/50 text-on-surface-variant/80 animate-pulse',
+  error: 'border-error/20 bg-status-error-bg text-status-error-text',
+  // Still, not pulsing: nothing is happening any more.
+  stopped: 'border-outline-variant/40 bg-surface-container-low/50 text-on-surface-variant/60',
+};
+
 function Chip({ icon: Icon, children, variant = 'active' }: ChipProps) {
-  const styles =
-    variant === 'error'
-      ? 'border-error/20 bg-status-error-bg text-status-error-text'
-      : 'border-outline-variant/40 bg-surface-container-low/50 text-on-surface-variant/80 animate-pulse';
   return (
-    <div
-      className={`flex items-center gap-2.5 rounded-full border px-4 py-2 ${styles}`}
-    >
+    <div className={`flex items-center gap-2.5 rounded-full border px-4 py-2 ${CHIP_STYLES[variant]}`}>
       <Icon size={16} />
       <span className="text-[11px] font-bold uppercase tracking-widest">{children}</span>
     </div>
@@ -48,6 +49,7 @@ function Chip({ icon: Icon, children, variant = 'active' }: ChipProps) {
 // chip → error chip. Each tool only supplies its icon, labels, and card.
 interface ToolCallProps<T extends ToolOutput> {
   part: ToolPart<T>;
+  isStreaming?: boolean;
   icon: LucideIcon;
   loadingLabel: string;
   errorLabel: string;
@@ -58,6 +60,7 @@ interface ToolCallProps<T extends ToolOutput> {
 // a full chat message and a specific tool's part type.
 export function ToolCall<T extends ToolOutput>({
   part,
+  isStreaming = true,
   icon,
   loadingLabel,
   errorLabel,
@@ -66,6 +69,9 @@ export function ToolCall<T extends ToolOutput>({
   const city = part.input?.city ?? '…';
 
   if (part.state === 'input-streaming' || part.state === 'input-available') {
+    // A saved chat can hold a call cut off by Stop. Outside the message
+    // being streamed it will never finish, so it must not pulse forever.
+    if (!isStreaming) return <Chip icon={icon} variant="stopped">Stopped</Chip>;
     return (
       <Chip icon={icon}>
         {loadingLabel} {city}
@@ -100,12 +106,14 @@ export function ToolCall<T extends ToolOutput>({
 // chip. No "not found" branch — a write has nothing to look up.
 interface MemoryToolCallProps {
   part: MemoryToolPart;
+  isStreaming?: boolean;
   pendingLabel: string;
   errorLabel: string;
 }
 
-export function MemoryToolCall({ part, pendingLabel, errorLabel }: MemoryToolCallProps) {
+export function MemoryToolCall({ part, isStreaming = true, pendingLabel, errorLabel }: MemoryToolCallProps) {
   if (part.state === 'input-streaming' || part.state === 'input-available') {
+    if (!isStreaming) return <Chip icon={Brain} variant="stopped">Stopped</Chip>;
     return <Chip icon={Brain}>{pendingLabel}</Chip>;
   }
   if (part.state === 'output-available' && part.output) {
@@ -164,21 +172,22 @@ const TOOL_CARDS: {
 
 // The switch narrows part.type, so each card receives exactly its tool's
 // input/output types — no casts anywhere on this path.
-function renderToolPart(part: ChatToolPart, key: number): ReactNode {
+function renderToolPart(part: ChatToolPart, key: number, isStreaming: boolean): ReactNode {
   switch (part.type) {
     case 'tool-getWeather':
-      return <ToolCall key={key} part={part} {...TOOL_CARDS.getWeather} />;
+      return <ToolCall key={key} part={part} isStreaming={isStreaming} {...TOOL_CARDS.getWeather} />;
     case 'tool-getForecast':
-      return <ToolCall key={key} part={part} {...TOOL_CARDS.getForecast} />;
+      return <ToolCall key={key} part={part} isStreaming={isStreaming} {...TOOL_CARDS.getForecast} />;
     case 'tool-getAirQuality':
-      return <ToolCall key={key} part={part} {...TOOL_CARDS.getAirQuality} />;
+      return <ToolCall key={key} part={part} isStreaming={isStreaming} {...TOOL_CARDS.getAirQuality} />;
     case 'tool-planTrip':
-      return <ToolCall key={key} part={part} {...TOOL_CARDS.planTrip} />;
+      return <ToolCall key={key} part={part} isStreaming={isStreaming} {...TOOL_CARDS.planTrip} />;
     case 'tool-remember':
       return (
         <MemoryToolCall
           key={key}
           part={part}
+          isStreaming={isStreaming}
           pendingLabel="Remembering…"
           errorLabel="Couldn't save that preference"
         />
@@ -188,6 +197,7 @@ function renderToolPart(part: ChatToolPart, key: number): ReactNode {
         <MemoryToolCall
           key={key}
           part={part}
+          isStreaming={isStreaming}
           pendingLabel="Forgetting…"
           errorLabel="Couldn't forget that preference"
         />
@@ -204,9 +214,11 @@ function renderToolPart(part: ChatToolPart, key: number): ReactNode {
 
 interface MessageItemProps {
   message: ChatUIMessage;
+  // True only for the last message while a reply is in flight.
+  isStreaming: boolean;
 }
 
-export function MessageItem({ message }: MessageItemProps) {
+export function MessageItem({ message, isStreaming }: MessageItemProps) {
   return (
     <div
       className={
@@ -232,7 +244,7 @@ export function MessageItem({ message }: MessageItemProps) {
         }
 
         // Steps, reasoning and other non-tool parts render nothing, as before.
-        return isStaticToolUIPart(part) ? renderToolPart(part, i) : null;
+        return isStaticToolUIPart(part) ? renderToolPart(part, i, isStreaming) : null;
       })}
     </div>
   );
