@@ -38,7 +38,7 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.0",
     "typescript": "^5",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.12"
   },
   "packageManager": "pnpm@10.28.2",
   "pnpm": {
@@ -50,6 +50,9 @@
       "ignoreGhsas": [
         "GHSA-vfj7-8cjw-p6xm"
       ]
+    },
+    "overrides": {
+      "vite": "^8.3.3"
     }
   }
 }
