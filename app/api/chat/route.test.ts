@@ -15,6 +15,19 @@ vi.mock('@/lib/model', async () => {
   return { getChatModel: () => new MockLanguageModelV4({ doStream }) };
 });
 
+// Spy on the real streamText so the test can read the options the route passed.
+const { streamTextSpy } = vi.hoisted(() => ({ streamTextSpy: vi.fn() }));
+vi.mock('ai', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('ai')>();
+  return {
+    ...actual,
+    streamText: ((options: Parameters<typeof actual.streamText>[0]) => {
+      streamTextSpy(options);
+      return actual.streamText(options);
+    }) as typeof actual.streamText,
+  };
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -160,5 +173,65 @@ describe('POST /api/chat — Stop in the browser', () => {
     expect(signal?.aborted).toBe(false);
     controller.abort();
     expect(signal?.aborted).toBe(true);
+  });
+});
+
+describe('POST /api/chat — tool context', () => {
+  // planTrip's critic needs the saved preferences; the SDK passes them
+  // through toolsContext, so the model never sees them as a tool argument.
+  // An empty memory still needs an entry: planTrip's contextSchema rejects a
+  // missing one.
+  it('gives planTrip the request memory, or an empty one', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const memory = { travelParty: { withPartner: false, childrenAges: [], pets: ['dog'] } };
+    for (const [i, body] of [{ messages, memory }, { messages }].entries()) {
+      streamTextSpy.mockClear();
+      const res = await post(body, `10.0.2.${i + 1}`);
+      await res.text();
+      expect(streamTextSpy.mock.lastCall?.[0]).toMatchObject({
+        toolsContext: { planTrip: { memory: 'memory' in body ? memory : {} } },
+      });
+    }
+  });
+});
+
+describe('POST /api/chat — saved plan cards in history', () => {
+  // The only guard for "the main model sees the plan and review.status, not
+  // the critic's issues or round": it relies on `tools` being passed to
+  // convertToModelMessages, which is where toModelOutput runs.
+  it('shows the model the review status but not the issues or the round', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const history = [
+      { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'Plan a trip to Lisbon' }] },
+      {
+        id: 'a1',
+        role: 'assistant',
+        parts: [
+          { type: 'step-start' },
+          {
+            type: 'tool-planTrip',
+            toolCallId: 'call-1',
+            state: 'output-available',
+            input: { city: 'Lisbon', summary: 's', packingList: ['a', 'b', 'c'] },
+            output: {
+              found: true,
+              city: 'Lisbon',
+              summary: 's',
+              packingList: ['a', 'b', 'c'],
+              review: { status: 'unverified', round: 2, issues: [{ field: 'summary', problem: 'SENTINEL' }] },
+            },
+          },
+        ],
+      },
+      { id: 'u2', role: 'user', parts: [{ type: 'text', text: 'Thanks!' }] },
+    ];
+    doStream.mockClear();
+    const res = await post({ messages: history }, '10.0.3.1');
+    await res.text();
+
+    const prompt = JSON.stringify((doStream.mock.lastCall?.[0] as { prompt?: unknown })?.prompt);
+    expect(prompt).toContain('unverified');
+    expect(prompt).not.toContain('SENTINEL');
+    expect(prompt).not.toContain('\"round\"');
   });
 });

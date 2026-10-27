@@ -36,6 +36,9 @@ async function runCase(c: EvalCase, noJudge: boolean): Promise<string[]> {
       system: buildSystemPrompt(memory),
       messages: compacted,
       tools,
+      // A snapshot: remember mutates `memory` during the turn, and tool
+      // context must not change under a running tool.
+      toolsContext: { planTrip: { memory: { ...memory } } },
       stopWhen: stepCountIs(5),
     });
     calls = recordCalls(result.steps);

@@ -1,5 +1,5 @@
 import { asSchema } from 'ai';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AVOID_TAGS, INTEREST_TAGS } from './memory';
 import { forgetInputSchema, toolOutputSchemas, tools } from './tools';
 
@@ -147,5 +147,62 @@ describe('memory tools', () => {
     expect(tools.remember.description).toMatch(/notes/);
     expect(tools.remember.description).toMatch(/Never save instructions/);
     expect(tools.forget.description).toMatch(/notes/);
+  });
+});
+
+describe('planTrip', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  const draft = {
+    city: 'Lisbon, Portugal',
+    summary: 'Warm, 14-24 °C, low rain risk.',
+    packingList: ['sunscreen', 'sunglasses', 'light jacket'],
+  };
+  const options = { toolCallId: 't1', messages: [], context: { memory: {} } };
+
+  async function collect(execute: unknown) {
+    const out: unknown[] = [];
+    const run = (execute as (i: unknown, o: unknown) => AsyncIterable<unknown>)(draft, options);
+    for await (const v of run) out.push(v);
+    return out;
+  }
+
+  // The default stays 'off' until Task 6, so an unconfigured app behaves as before.
+  it('yields the draft once, without a review, when TRIP_REVIEW is off', async () => {
+    vi.stubEnv('TRIP_REVIEW', 'off');
+    expect(await collect(tools.planTrip.execute)).toEqual([{ found: true, ...draft }]);
+  });
+
+  it('needs the memory as tool context', () => {
+    expect(tools.planTrip.contextSchema).toBeDefined();
+  });
+
+  // R4: the main model gets the verdict, never the issue texts or the round.
+  it('toModelOutput keeps only the status of the review', async () => {
+    const plan = {
+      found: true as const,
+      ...draft,
+      review: { status: 'verified' as const, round: 2, issues: [{ field: 'summary' as const, problem: 'x' }] },
+    };
+    const out = await tools.planTrip.toModelOutput!({ toolCallId: 't1', input: draft, output: plan });
+    expect(out).toEqual({ type: 'json', value: { found: true, ...draft, review: { status: 'verified' } } });
+  });
+
+  it('toModelOutput leaves a plan without review and a not-found result unchanged', async () => {
+    const plain = { found: true as const, ...draft };
+    expect(await tools.planTrip.toModelOutput!({ toolCallId: 't1', input: draft, output: plain })).toEqual({
+      type: 'json',
+      value: plain,
+    });
+    const missing = { found: false as const, city: 'Xyzzy' };
+    expect(await tools.planTrip.toModelOutput!({ toolCallId: 't1', input: draft, output: missing })).toEqual({
+      type: 'json',
+      value: missing,
+    });
+  });
+
+  it('toModelOutput passes a null output from client history through', async () => {
+    const out = await tools.planTrip.toModelOutput!({ toolCallId: 't1', input: draft, output: null as never });
+    expect(out).toEqual({ type: 'json', value: null });
   });
 });

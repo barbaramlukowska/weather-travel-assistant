@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { getChatModel, getJudgeModel } from './model';
+import { getChatModel, getCriticModel, getJudgeModel } from './model';
 
 // The provider SDKs need a key only when a request is actually sent, so
 // constructing a model in a test is free and offline.
-const ENV_KEYS = ['JUDGE_PROVIDER', 'JUDGE_MODEL', 'LLM_PROVIDER', 'CHAT_MODEL'] as const;
+const ENV_KEYS = ['JUDGE_PROVIDER', 'JUDGE_MODEL', 'CRITIC_PROVIDER', 'CRITIC_MODEL', 'LLM_PROVIDER', 'CHAT_MODEL'] as const;
 const saved = new Map<string, string | undefined>();
 
 afterEach(() => {
@@ -53,6 +53,28 @@ describe('getJudgeModel', () => {
       if (before === undefined) delete process.env.LLM_PROVIDER;
       else process.env.LLM_PROVIDER = before;
     }
+  });
+});
+
+describe('getCriticModel', () => {
+  it('defaults to the OpenAI critic model', () => {
+    setEnv('CRITIC_PROVIDER', undefined);
+    setEnv('CRITIC_MODEL', undefined);
+    expect(getCriticModel().modelId).toBe('gpt-5.6-terra');
+  });
+
+  it('switches provider and honours CRITIC_MODEL, read per call', () => {
+    setEnv('CRITIC_PROVIDER', 'google');
+    setEnv('CRITIC_MODEL', undefined);
+    expect(getCriticModel().modelId).toBe('gemini-3.6-flash');
+    setEnv('CRITIC_PROVIDER', undefined);
+    setEnv('CRITIC_MODEL', 'gpt-5.4-mini');
+    expect(getCriticModel().modelId).toBe('gpt-5.4-mini');
+  });
+
+  it('is never the default chat model', () => {
+    for (const key of ENV_KEYS) setEnv(key, undefined);
+    expect(getCriticModel().modelId).not.toBe(getChatModel().modelId);
   });
 });
 
