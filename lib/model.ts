@@ -31,3 +31,22 @@ export function getJudgeModel() {
   }
   return openai(process.env.JUDGE_MODEL ?? 'gpt-5.6-terra');
 }
+
+// The critic checks the agent's trip draft, so it must not be the chat model:
+// a model grading its own draft shares its blind spots and is biased towards
+// approving it (same reason as getJudgeModel). It runs once per plan with a
+// small prompt, so a stronger model is affordable.
+// Measured on the 10 critic fixtures (evals/critic-check.ts, 2026-10-27):
+// Terra 10/10 on two runs. gemini-3.6-flash scored 10/10 on one run but hit
+// the free-tier quota on the others, so it is not certified and Terra stays.
+// Terra is also JUDGE_MODEL: a judge that grades a card revised by the same
+// model is biased, so evals that grade trip plans should run with another
+// JUDGE_MODEL.
+// Env is read per call (not at module load) so tests can vary it.
+export function getCriticModel() {
+  const criticProvider = process.env.CRITIC_PROVIDER ?? 'openai';
+  if (criticProvider === 'google') {
+    return google(process.env.CRITIC_MODEL ?? 'gemini-3.6-flash');
+  }
+  return openai(process.env.CRITIC_MODEL ?? 'gpt-5.6-terra');
+}

@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "eval": "tsx --env-file=.env.local evals/run.ts",
-    "eval:judge": "tsx --env-file=.env.local evals/judge-check.ts"
+    "eval:judge": "tsx --env-file=.env.local evals/judge-check.ts",
+    "eval:critic": "tsx --env-file=.env.local evals/critic-check.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.8",

@@ -92,7 +92,12 @@ export async function POST(req: Request) {
   // ignoreIncompleteToolCalls: Stop during a tool call leaves its part at
   // input-available, and chats are now saved. Without it every later message
   // of that chat would fail with MissingToolResultsError.
-  const modelMessages = await convertToModelMessages(messages, { ignoreIncompleteToolCalls: true });
+  const modelMessages = await convertToModelMessages(messages, {
+    // Same tools as streamText: saved cards go through each tool's
+    // toModelOutput, so the model never sees what it was not meant to.
+    tools,
+    ignoreIncompleteToolCalls: true,
+  });
   const { messages: compacted, stats } = await compactContext(modelMessages);
 
   // Level 2 costs a model call and up to 8s before the first token, so on
@@ -111,6 +116,8 @@ export async function POST(req: Request) {
     system: buildSystemPrompt(parsed.data.memory),
     messages: compacted,
     tools,
+    // planTrip's critic needs the saved preferences; this is how they reach it.
+    toolsContext: { planTrip: { memory: parsed.data.memory ?? {} } },
     // The agent loop: without this the model calls the tool but never writes
     // the final answer.
     stopWhen: stepCountIs(5),

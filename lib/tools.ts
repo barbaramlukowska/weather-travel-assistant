@@ -4,11 +4,14 @@ import {
   forgetInputSchema,
   memoryCategorySchema,
   memoryFactSchema,
+  memorySchema,
   rememberInputSchema,
   type ForgetInput,
   type RememberInput,
 } from './memory';
+import { fetchForecast } from './forecast';
 import { geocodeCity } from './geocode';
+import { reviewMode, reviewTrip, tripPlanSchema, type TripReview } from './trip-review';
 
 // The shapes our tools return. Each is a discriminated union on `found`, so
 // both the model and the UI can tell "no data" apart from real results.
@@ -87,32 +90,9 @@ export type TripPlanOutput =
       city: string;
       summary: string;
       packingList: string[];
+      review?: TripReview;
     }
   | { found: false; city: string };
-
-// Output contract for the trip-plan card. Every field must be derived from
-// real tool results (forecast), never from the model's own knowledge.
-const tripPlanSchema = z.object({
-  city: z
-    .string()
-    .describe('City name with country, e.g. "Lisbon, Portugal"'),
-  summary: z
-    .string()
-    .describe(
-      'One or two sentences based on the actual forecast data: mention the ' +
-        'temperature range and rain risk. Do not give generic travel advice.',
-    ),
-  packingList: z
-    .array(z.string())
-    .min(3)
-    .max(6)
-    .describe(
-      'Items to pack, each justified by the forecast or by the known user ' +
-        'preferences (e.g. "umbrella" only if rain is likely, "sunscreen" ' +
-        'only if sunny, "a dog lead" for someone who travels with their dog). ' +
-        'Short phrases.',
-    ),
-});
 
 const planTrip = tool({
   description:
@@ -121,8 +101,21 @@ const planTrip = tool({
     'city FIRST, then fill in the summary from that forecast data, and the ' +
     'packing list from the forecast and the known user preferences.',
   inputSchema: tripPlanSchema,
-  // Pass-through: the model's structured input IS the card data.
-  execute: async (input): Promise<TripPlanOutput> => ({ found: true, ...input }),
+  // Preferences for the critic, from the request (toolsContext), not the model.
+  contextSchema: z.object({ memory: memorySchema }),
+  // Each yield is a preliminary result; the last one is final.
+  execute: async function* (input, { context, abortSignal }): AsyncGenerator<TripPlanOutput> {
+    yield* reviewTrip(input, context.memory, { mode: reviewMode(), abortSignal });
+  },
+  // The main model gets the status only; issues and rounds are for the card.
+  // `?.`: client history may carry `output: null`.
+  toModelOutput: ({ output }) => ({
+    type: 'json',
+    value:
+      output?.found && output.review
+        ? { ...output, review: { status: output.review.status } }
+        : output,
+  }),
 });
 
 const getWeather = tool({
@@ -232,54 +225,7 @@ const getForecast = tool({
       .max(80)
       .describe('City name in English, e.g. "Vienna" (not "Wiedeń"), "Tokyo"'),
   }),
-  // Always fetch a full week. Letting the model choose how many days meant it
-  // asked for too few (e.g. 3) and never reached the weekend it was asked about
-  // — a decision a small model gets wrong, so we make it in code instead.
-  execute: async ({ city }): Promise<ForecastOutput> => {
-    try {
-      const geo = await geocodeCity(city);
-      if (!geo.found) {
-        return { found: false, city };
-      }
-
-      const { latitude, longitude, name, country } = geo;
-
-      const fRes = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
-          `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max` +
-          `&forecast_days=7&timezone=auto`,
-      );
-      if (!fRes.ok) {
-        throw new Error(`Forecast request failed with status ${fRes.status}`);
-      }
-      const f = await fRes.json();
-
-      // Reshape parallel arrays ({time: [...], temperature_2m_max: [...]})
-      // into one object per day — much easier for the model to read.
-      const daily = f.daily.time.map((date: string, i: number) => ({
-        date,
-        maxTemp: f.daily.temperature_2m_max[i],
-        minTemp: f.daily.temperature_2m_min[i],
-        precipitationChance: f.daily.precipitation_probability_max[i],
-        maxWindSpeed: f.daily.wind_speed_10m_max[i],
-        weekday: new Date(date).toLocaleDateString('en-US', { weekday: 'long' }),
-      }));
-
-      return {
-        found: true,
-        location: `${name}, ${country}`,
-        days: daily,
-        units: {
-          temperature: f.daily_units.temperature_2m_max,
-          precipitationChance: f.daily_units.precipitation_probability_max,
-          windSpeed: f.daily_units.wind_speed_10m_max,
-        },
-      };
-    } catch (err) {
-      console.error('getForecast failed:', err);
-      throw new Error('Forecast service unavailable');
-    }
-  },
+  execute: ({ city }): Promise<ForecastOutput> => fetchForecast(city),
 });
 
 // --- Preference memory (4.2) ---
