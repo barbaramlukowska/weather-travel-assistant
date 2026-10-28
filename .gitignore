@@ -42,10 +42,15 @@ next-env.d.ts
 
 # personal learning notes — kept next to the project for convenience,
 # not published (contains study plan, interview prep, private notes)
-/docs/NAUKA-agentic-ai.md
+/docs/NAUKA-*.md
 
 # implementation plans and specs written while working — working notes with
 # session-specific detail, not project documentation (README and
 # docs/THREAT-MODEL.md carry what's meant to be public)
 /docs/superpowers/plans/
 /docs/superpowers/specs/
+
+# AI SDK DevTools (AI_DEVTOOLS=1 pnpm dev): every prompt, memory and reply in
+# plain text — never commit
+# (spelled exactly ".devtools/": the package looks for it and appends its own line otherwise)
+.devtools/

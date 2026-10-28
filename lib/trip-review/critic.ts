@@ -1,5 +1,6 @@
 import { Output, generateText } from 'ai';
 import { getCriticModel } from '@/lib/model';
+import { costUsd } from '@/lib/pricing';
 import { CRITIC_SYSTEM_PROMPT, buildCriticPrompt, type ReviewInput } from './prompt';
 import {
   MAX_ISSUES,
@@ -21,7 +22,7 @@ const clip = (text: string, max: number) =>
 // No catch: what a failure means is the orchestrator's call.
 export async function critiqueTrip(
   input: ReviewInput,
-  opts: { abortSignal?: AbortSignal } = {},
+  opts: { abortSignal?: AbortSignal; onCost?: (usd: number | null) => void } = {},
 ): Promise<CriticVerdict> {
   const { output } = await generateText({
     model: getCriticModel(),
@@ -31,6 +32,8 @@ export async function critiqueTrip(
     prompt: buildCriticPrompt(input),
     output: Output.object({ schema: criticWireSchema }),
     abortSignal: opts.abortSignal,
+    // Before the checks below: a verdict that throws was still billed.
+    onEnd: ({ model, totalUsage }) => opts.onCost?.(costUsd(model.modelId, totalUsage)),
   });
   // A "no" without a reason would otherwise read as "verified".
   if (!output.pass && output.issues.length === 0) {

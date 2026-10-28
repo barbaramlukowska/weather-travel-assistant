@@ -2,12 +2,14 @@ export type EvalArgs = {
   // Substring match on case ids; undefined runs everything.
   filter: string | undefined;
   noJudge: boolean;
+  // Overwrite evals/perf-baseline.json with this run's timing and cost.
+  updateBaseline: boolean;
   // Flags this parser does not know. Collected rather than warned about here,
   // so the function stays pure and the runners decide how loud to be.
   unknownFlags: string[];
 };
 
-export const EVAL_FLAGS = ['--no-judge'];
+export const EVAL_FLAGS = ['--no-judge', '--update-baseline'];
 
 // Lives apart from run.ts because that file calls main() on import — a test
 // importing it would start a paid eval run.
@@ -17,6 +19,7 @@ export function parseEvalArgs(argv: string[], knownFlags: string[] = EVAL_FLAGS)
   return {
     filter: argv.find((arg) => !arg.startsWith('--')),
     noJudge: knownFlags.includes('--no-judge') && argv.includes('--no-judge'),
+    updateBaseline: knownFlags.includes('--update-baseline') && argv.includes('--update-baseline'),
     unknownFlags: argv.filter((arg) => arg.startsWith('--') && !knownFlags.includes(arg)),
   };
 }

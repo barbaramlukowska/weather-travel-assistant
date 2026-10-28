@@ -1,4 +1,5 @@
 import { fetchForecast } from '../forecast';
+import { roundUsd } from '../pricing';
 import type { Memory } from '../memory';
 import type { ForecastOutput, TripPlanOutput } from '../tools';
 import { checkDraft } from './checks';
@@ -34,6 +35,9 @@ export type ReviewStats = {
   // live: issues on the card; shadow: all found, layer 1 even if the critic failed.
   issues: number;
   ms: number;
+  // Critic and reviser calls that finished; one cut off by Stop or the
+  // deadline is billed but missing, so this is a lower bound. null = unpriced model.
+  costUsd: number | null;
 };
 
 export type ReviewDeps = {
@@ -91,8 +95,15 @@ export async function* reviewTrip(
   }
 
   const start = deps.now();
+  let costUsd: number | null = 0;
+  const onCost = (usd: number | null) => {
+    costUsd = costUsd === null || usd === null ? null : costUsd + usd;
+  };
   const finish = (status: ReviewStats['status'], rounds: number, issues: number) =>
-    deps.log({ mode, status, rounds, issues, ms: deps.now() - start });
+    deps.log({
+      mode, status, rounds, issues, ms: deps.now() - start,
+      costUsd: costUsd === null ? null : roundUsd(costUsd),
+    });
 
   // User's Stop or our deadline, whichever comes first.
   const deadline = deps.timeout(REVIEW_DEADLINE_MS);
@@ -133,7 +144,7 @@ export async function* reviewTrip(
     let issues = checkDraft(draft, forecast).length;
     let status: ReviewStatus = 'unchecked';
     try {
-      const verdict = await deps.critique({ draft, forecast, memory }, { abortSignal: signal });
+      const verdict = await deps.critique({ draft, forecast, memory }, { abortSignal: signal, onCost });
       issues += verdict.issues.length;
       status = issues === 0 ? 'verified' : 'unverified';
     } catch (error) {
@@ -173,7 +184,7 @@ export async function* reviewTrip(
     let issues: ReviewIssue[];
     rounds = round;
     try {
-      const verdict = await deps.critique({ draft: current, forecast, memory }, { abortSignal: signal });
+      const verdict = await deps.critique({ draft: current, forecast, memory }, { abortSignal: signal, onCost });
       issues = [...checkDraft(current, forecast), ...verdict.issues];
     } catch (error) {
       rethrowIfStopped(error, rounds);
@@ -212,7 +223,7 @@ export async function* reviewTrip(
     try {
       current = await deps.revise(
         { draft: current, forecast, memory, issues },
-        { abortSignal: signal },
+        { abortSignal: signal, onCost },
       );
       // The forecast belongs to draft.city; code, not the prompt, keeps it.
       current = { ...current, city: draft.city };

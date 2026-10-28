@@ -1,5 +1,7 @@
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { generateText, stepCountIs, type ModelMessage } from 'ai';
 import { compactContext } from '../lib/context';
+import { summarizeTurn, type TurnLog } from '../lib/turn-log';
 import { formatFact, memoryFacts } from '../lib/memory';
 import { getChatModel } from '../lib/model';
 import { buildSystemPrompt } from '../lib/prompt';
@@ -8,11 +10,23 @@ import { cases, type EvalCase } from './cases';
 import { judgeAnswer } from './judge';
 import { formatJudgeFailure } from './judge-verdicts';
 import { createEvalMemory } from './memory-tools';
+import {
+  formatPerf,
+  perfRegressions,
+  perfStats,
+  type PerfBaseline,
+  type PerfStats,
+} from './perf';
 import { recordCalls, type RecordedCall } from './record-calls';
+
+// Run from the repo root by `pnpm eval`. Committed, so a baseline change
+// shows up in review like any other.
+const BASELINE_PATH = 'evals/perf-baseline.json';
 
 // Replay the case's turns the way useChat would (append responses to the
 // history), then assert on the final turn only: its tool calls and text.
-async function runCase(c: EvalCase, noJudge: boolean): Promise<string[]> {
+// Every turn, not just the final one, goes into `turns` for timing and cost.
+async function runCase(c: EvalCase, noJudge: boolean, turns: TurnLog[]): Promise<string[]> {
   const messages: ModelMessage[] = [];
   let calls: RecordedCall[] = [];
   let text = '';
@@ -41,6 +55,7 @@ async function runCase(c: EvalCase, noJudge: boolean): Promise<string[]> {
       toolsContext: { planTrip: { memory: { ...memory } } },
       stopWhen: stepCountIs(5),
     });
+    turns.push(summarizeTurn(result.steps, 'done'));
     calls = recordCalls(result.steps);
     text = result.text;
     messages.push(...result.responseMessages);
@@ -153,9 +168,42 @@ async function runCase(c: EvalCase, noJudge: boolean): Promise<string[]> {
   return failures;
 }
 
+// Prints the run's timing and cost next to the baseline and returns false on
+// a regression. Compares only like with like: a filtered run or another chat
+// model gives numbers that say nothing about the baseline.
+function checkPerf(stats: PerfStats, model: string, fullRun: boolean, allPassed: boolean, update: boolean): boolean {
+  console.log(`perf: ${formatPerf(stats)} (agent only, the judge is not counted)`);
+
+  if (update) {
+    // A failing run can be fast for the wrong reason, e.g. a tool never called.
+    if (!fullRun || !allPassed) {
+      console.log('baseline not updated: needs a full run with every case passing');
+      return false;
+    }
+    const baseline: PerfBaseline = { ...stats, date: new Date().toISOString().slice(0, 10), model };
+    writeFileSync(BASELINE_PATH, JSON.stringify(baseline, null, 2) + '\n');
+    console.log(`baseline updated: ${BASELINE_PATH}`);
+    return true;
+  }
+
+  if (!existsSync(BASELINE_PATH)) {
+    console.log('no baseline yet: run `pnpm eval --update-baseline`');
+    return true;
+  }
+  const base = JSON.parse(readFileSync(BASELINE_PATH, 'utf8')) as PerfBaseline;
+  console.log(`base: ${formatPerf(base)} (${base.date}, ${base.model})`);
+  if (!fullRun || model !== base.model) {
+    console.log('not compared: the baseline is for a full run on its own model');
+    return true;
+  }
+  const regressions = perfRegressions(stats, base);
+  for (const r of regressions) console.log(`❌ perf: ${r}`);
+  return regressions.length === 0;
+}
+
 async function main() {
   // Optional filter by case id: `npm run eval -- trip-plan`
-  const { filter, noJudge, unknownFlags } = parseEvalArgs(process.argv.slice(2));
+  const { filter, noJudge, updateBaseline, unknownFlags } = parseEvalArgs(process.argv.slice(2));
   // A misspelled --no-judge used to run the paid judge in silence. A warning
   // would scroll past; this run costs money, so an unknown flag stops it.
   if (unknownFlags.length > 0) {
@@ -174,9 +222,10 @@ async function main() {
   }
 
   let passed = 0;
+  const turns: TurnLog[] = [];
   for (const c of selected) {
     try {
-      const failures = await runCase(c, noJudge);
+      const failures = await runCase(c, noJudge, turns);
       if (failures.length === 0) {
         passed++;
         console.log(`✅ ${c.id}`);
@@ -190,7 +239,15 @@ async function main() {
   }
 
   console.log(`\n${passed}/${selected.length} passed`);
-  process.exitCode = passed === selected.length ? 0 : 1;
+  const allPassed = passed === selected.length;
+  const perfOk = checkPerf(
+    perfStats(turns),
+    turns[0]?.model ?? 'unknown',
+    selected.length === cases.length,
+    allPassed,
+    updateBaseline,
+  );
+  process.exitCode = allPassed && perfOk ? 0 : 1;
 }
 
 main();

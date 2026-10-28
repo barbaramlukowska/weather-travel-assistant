@@ -3,13 +3,14 @@ import { parseEvalArgs, selectById } from './args';
 
 describe('parseEvalArgs', () => {
   it('defaults to judging everything and filtering nothing', () => {
-    expect(parseEvalArgs([])).toEqual({ filter: undefined, noJudge: false, unknownFlags: [] });
+    expect(parseEvalArgs([])).toEqual({ filter: undefined, noJudge: false, updateBaseline: false, unknownFlags: [] });
   });
 
   it('reads a bare argument as the case-id filter', () => {
     expect(parseEvalArgs(['trip-plan'])).toEqual({
       filter: 'trip-plan',
       noJudge: false,
+      updateBaseline: false,
       unknownFlags: [],
     });
   });
@@ -20,6 +21,7 @@ describe('parseEvalArgs', () => {
     expect(parseEvalArgs(['--no-judge'])).toEqual({
       filter: undefined,
       noJudge: true,
+      updateBaseline: false,
       unknownFlags: [],
     });
   });
@@ -28,11 +30,13 @@ describe('parseEvalArgs', () => {
     expect(parseEvalArgs(['trip-plan', '--no-judge'])).toEqual({
       filter: 'trip-plan',
       noJudge: true,
+      updateBaseline: false,
       unknownFlags: [],
     });
     expect(parseEvalArgs(['--no-judge', 'trip-plan'])).toEqual({
       filter: 'trip-plan',
       noJudge: true,
+      updateBaseline: false,
       unknownFlags: [],
     });
   });
@@ -43,6 +47,7 @@ describe('parseEvalArgs', () => {
     expect(parseEvalArgs(['--nojudge'])).toEqual({
       filter: undefined,
       noJudge: false,
+      updateBaseline: false,
       unknownFlags: ['--nojudge'],
     });
   });
@@ -51,7 +56,17 @@ describe('parseEvalArgs', () => {
     expect(parseEvalArgs(['--no_judge', '--no-judge', '--verbose'])).toEqual({
       filter: undefined,
       noJudge: true,
+      updateBaseline: false,
       unknownFlags: ['--no_judge', '--verbose'],
+    });
+  });
+
+  it('reads --update-baseline next to the other flag', () => {
+    expect(parseEvalArgs(['--no-judge', '--update-baseline'])).toEqual({
+      filter: undefined,
+      noJudge: true,
+      updateBaseline: true,
+      unknownFlags: [],
     });
   });
 
@@ -61,6 +76,7 @@ describe('parseEvalArgs', () => {
     expect(parseEvalArgs(['--no-judge'], [])).toEqual({
       filter: undefined,
       noJudge: false,
+      updateBaseline: false,
       unknownFlags: ['--no-judge'],
     });
   });
@@ -69,6 +85,7 @@ describe('parseEvalArgs', () => {
     expect(parseEvalArgs(['clean-pass'], [])).toEqual({
       filter: 'clean-pass',
       noJudge: false,
+      updateBaseline: false,
       unknownFlags: [],
     });
   });
