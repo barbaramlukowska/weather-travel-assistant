@@ -14,6 +14,7 @@ import {
 } from 'ai';
 import { z } from 'zod';
 import { isRateLimited, clientKeyFrom } from '@/lib/rate-limit';
+import { logTurn } from '@/lib/turn-log';
 import { toClientErrorMessage } from './client-error';
 
 export const maxDuration = 30;
@@ -127,6 +128,11 @@ export async function POST(req: Request) {
     abortSignal: req.signal,
     // Re-emit the reply word by word so the UI feels like a smooth typewriter.
     experimental_transform: smoothStream({ delayInMs: 30, chunking: 'word' }),
+    // Every turn, production too: cost and TTFT are only useful as a series.
+    // Aborted turns count, their finished steps were billed. The step still
+    // running at Stop is not in `steps`, so their cost is a lower bound.
+    onEnd: ({ steps }) => logTurn(steps, 'done'),
+    onAbort: ({ steps }) => logTurn(steps, 'aborted'),
   });
 
   return createUIMessageStreamResponse({

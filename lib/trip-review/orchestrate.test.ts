@@ -75,21 +75,21 @@ describe('reviewTrip', () => {
     expect(await run('shadow', s.deps)).toEqual([{ found: true, ...draft }]);
     expect(s.revise).not.toHaveBeenCalled();
     expect(s.log).toHaveBeenCalledTimes(1);
-    expect(s.log).toHaveBeenCalledWith({ mode: 'shadow', status: 'unverified', rounds: 1, issues: 2, ms: 0 });
+    expect(s.log).toHaveBeenCalledWith({ mode: 'shadow', status: 'unverified', rounds: 1, issues: 2, ms: 0, costUsd: 0 });
   });
 
   it('shadow with a throwing critic: logs unchecked', async () => {
     const s = setup({ critique: vi.fn(async () => { throw new Error('bad'); }) });
     expect(await run('shadow', s.deps)).toEqual([{ found: true, ...draft }]);
     expect(s.log).toHaveBeenCalledTimes(1);
-    expect(s.log).toHaveBeenCalledWith({ mode: 'shadow', status: 'unchecked', rounds: 1, issues: 0, ms: 0 });
+    expect(s.log).toHaveBeenCalledWith({ mode: 'shadow', status: 'unchecked', rounds: 1, issues: 0, ms: 0, costUsd: 0 });
   });
 
   it('shadow with a throwing critic still counts the layer 1 issues', async () => {
     const bad = { ...draft, summary: 'Hot, 35–40°.' };
     const s = setup({ critique: vi.fn(async () => { throw new Error('bad'); }) });
     expect(await run('shadow', s.deps, bad)).toEqual([{ found: true, ...bad }]);
-    expect(s.log).toHaveBeenCalledWith({ mode: 'shadow', status: 'unchecked', rounds: 1, issues: 1, ms: 0 });
+    expect(s.log).toHaveBeenCalledWith({ mode: 'shadow', status: 'unchecked', rounds: 1, issues: 1, ms: 0, costUsd: 0 });
   });
 
   it('live, critic passes at once: [checking, verified]', async () => {
@@ -99,7 +99,7 @@ describe('reviewTrip', () => {
       card(draft, { status: 'verified', round: 1 }),
     ]);
     expect(s.log).toHaveBeenCalledTimes(1);
-    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'verified', rounds: 1, issues: 0, ms: 0 });
+    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'verified', rounds: 1, issues: 0, ms: 0, costUsd: 0 });
   });
 
   it('live, issues then revise then pass', async () => {
@@ -117,7 +117,7 @@ describe('reviewTrip', () => {
       expect.anything(),
     );
     expect(s.log).toHaveBeenCalledTimes(1);
-    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'verified', rounds: 2, issues: 0, ms: 0 });
+    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'verified', rounds: 2, issues: 0, ms: 0, costUsd: 0 });
   });
 
   it('live, fewer issues each time but never zero: budget stop after 2 revisions', async () => {
@@ -136,7 +136,7 @@ describe('reviewTrip', () => {
     expect(critique).toHaveBeenCalledTimes(3);
     expect(revise).toHaveBeenCalledTimes(2);
     expect(s.log).toHaveBeenCalledTimes(1);
-    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'unverified', rounds: 3, issues: 1, ms: 0 });
+    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'unverified', rounds: 3, issues: 1, ms: 0, costUsd: 0 });
   });
 
   it('live, no progress: stops after one revision and returns the first version', async () => {
@@ -149,7 +149,7 @@ describe('reviewTrip', () => {
     ]);
     expect(s.revise).toHaveBeenCalledTimes(1);
     expect(s.log).toHaveBeenCalledTimes(1);
-    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'unverified', rounds: 2, issues: 2, ms: 0 });
+    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'unverified', rounds: 2, issues: 2, ms: 0, costUsd: 0 });
   });
 
   it('live, deadline passes during the first critique: no revise, unverified', async () => {
@@ -164,7 +164,7 @@ describe('reviewTrip', () => {
     ]);
     expect(s.revise).not.toHaveBeenCalled();
     expect(s.log).toHaveBeenCalledTimes(1);
-    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'unverified', rounds: 1, issues: 1, ms: 13_000 });
+    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'unverified', rounds: 1, issues: 1, ms: 13_000, costUsd: 0 });
   });
 
   it('live, critic throws: unchecked, plan is the draft', async () => {
@@ -174,7 +174,7 @@ describe('reviewTrip', () => {
       card(draft, { status: 'unchecked', round: 1 }),
     ]);
     expect(s.log).toHaveBeenCalledTimes(1);
-    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'unchecked', rounds: 1, issues: 0, ms: 0 });
+    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'unchecked', rounds: 1, issues: 0, ms: 0, costUsd: 0 });
   });
 
   it('live, reviser throws in round 2: unverified with the best version', async () => {
@@ -190,7 +190,7 @@ describe('reviewTrip', () => {
       card(draftN(2), { status: 'unverified', round: 2, issues: [issue('a'), issue('b')] }),
     ]);
     expect(s.log).toHaveBeenCalledTimes(1);
-    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'unverified', rounds: 2, issues: 2, ms: 0 });
+    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'unverified', rounds: 2, issues: 2, ms: 0, costUsd: 0 });
   });
 
   it('AbortError from the critic propagates, logged as aborted', async () => {
@@ -198,7 +198,7 @@ describe('reviewTrip', () => {
     const s = setup({ critique: vi.fn(async () => { throw abort; }) });
     await expect(run('live', s.deps)).rejects.toBe(abort);
     expect(s.log).toHaveBeenCalledTimes(1);
-    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'aborted', rounds: 1, issues: 0, ms: 0 });
+    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'aborted', rounds: 1, issues: 0, ms: 0, costUsd: 0 });
   });
 
   it('an error while the signal is aborted propagates even without the AbortError name', async () => {
@@ -216,7 +216,7 @@ describe('reviewTrip', () => {
     });
     await expect(run('live', s.deps)).rejects.toBe(abort);
     expect(s.log).toHaveBeenCalledTimes(1);
-    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'aborted', rounds: 1, issues: 0, ms: 0 });
+    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'aborted', rounds: 1, issues: 0, ms: 0, costUsd: 0 });
   });
 
   it('retries the geocoder with the part before the comma', async () => {
@@ -231,7 +231,7 @@ describe('reviewTrip', () => {
     ]);
     expect(fetchForecast.mock.calls.map((c) => c[0])).toEqual(['Lisbon, Portugal', 'Lisbon']);
     expect(s.log).toHaveBeenCalledTimes(1);
-    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'verified', rounds: 1, issues: 0, ms: 0 });
+    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'verified', rounds: 1, issues: 0, ms: 0, costUsd: 0 });
   });
 
   it('city unknown after both lookups: the plan stays, unchecked', async () => {
@@ -244,7 +244,7 @@ describe('reviewTrip', () => {
     ]);
     expect(s.critique).not.toHaveBeenCalled();
     expect(s.log).toHaveBeenCalledTimes(1);
-    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'unchecked', rounds: 0, issues: 0, ms: 0 });
+    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'unchecked', rounds: 0, issues: 0, ms: 0, costUsd: 0 });
   });
 
   // Found in the browser: "Lake Como" alone geocodes to Florida.
@@ -286,7 +286,7 @@ describe('reviewTrip', () => {
       card(draftN(2), { status: 'verified', round: 2 }),
     ]);
     expect(s.log).toHaveBeenCalledTimes(1);
-    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'verified', rounds: 2, issues: 0, ms: 0 });
+    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'verified', rounds: 2, issues: 0, ms: 0, costUsd: 0 });
   });
 
   it('layer 1 and critic issues are concatenated for the reviser', async () => {
@@ -312,7 +312,7 @@ describe('reviewTrip', () => {
     expect(await run('shadow', s.deps, d)).toEqual([{ found: true, ...d }]);
     expect(s.critique).not.toHaveBeenCalled();
     expect(s.log).toHaveBeenCalledTimes(1);
-    expect(s.log).toHaveBeenCalledWith({ mode: 'shadow', status: 'unchecked', rounds: 0, issues: 0, ms: 0 });
+    expect(s.log).toHaveBeenCalledWith({ mode: 'shadow', status: 'unchecked', rounds: 0, issues: 0, ms: 0, costUsd: 0 });
   });
 
   it('live, deadline passes during revise: no second critique, unverified with best issues', async () => {
@@ -331,7 +331,7 @@ describe('reviewTrip', () => {
     ]);
     expect(critique).toHaveBeenCalledTimes(1);
     expect(s.log).toHaveBeenCalledTimes(1);
-    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'unverified', rounds: 1, issues: 2, ms: 13_000 });
+    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'unverified', rounds: 1, issues: 2, ms: 13_000, costUsd: 0 });
   });
 
   it('live, critic throws in round 2: unverified with the best judged version', async () => {
@@ -343,7 +343,7 @@ describe('reviewTrip', () => {
       card(draft, { status: 'unverified', round: 2, issues: [issue('a')] }),
     ]);
     expect(s.log).toHaveBeenCalledTimes(1);
-    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'unverified', rounds: 2, issues: 1, ms: 0 });
+    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'unverified', rounds: 2, issues: 1, ms: 0, costUsd: 0 });
   });
 
   it('live, deadline passes during the geocoder lookup: unchecked, critic never ran', async () => {
@@ -358,14 +358,14 @@ describe('reviewTrip', () => {
     ]);
     expect(s.critique).not.toHaveBeenCalled();
     expect(s.log).toHaveBeenCalledTimes(1);
-    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'unchecked', rounds: 0, issues: 0, ms: 13_000 });
+    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'unchecked', rounds: 0, issues: 0, ms: 13_000, costUsd: 0 });
   });
   it('shadow, forecast service down: card unchanged, logged unchecked once', async () => {
     const s = setup({ fetchForecast: vi.fn(async () => { throw new Error('Forecast service unavailable'); }) });
     expect(await run('shadow', s.deps)).toEqual([{ found: true, ...draft }]);
     expect(s.critique).not.toHaveBeenCalled();
     expect(s.log).toHaveBeenCalledTimes(1);
-    expect(s.log).toHaveBeenCalledWith({ mode: 'shadow', status: 'unchecked', rounds: 0, issues: 0, ms: 0 });
+    expect(s.log).toHaveBeenCalledWith({ mode: 'shadow', status: 'unchecked', rounds: 0, issues: 0, ms: 0, costUsd: 0 });
   });
 
   it('live, forecast service down: card with unchecked, logged once', async () => {
@@ -376,14 +376,14 @@ describe('reviewTrip', () => {
     ]);
     expect(s.critique).not.toHaveBeenCalled();
     expect(s.log).toHaveBeenCalledTimes(1);
-    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'unchecked', rounds: 0, issues: 0, ms: 0 });
+    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'unchecked', rounds: 0, issues: 0, ms: 0, costUsd: 0 });
   });
 
   it('AbortError during the forecast lookup propagates, logged as aborted', async () => {
     const abort = Object.assign(new Error('aborted'), { name: 'AbortError' });
     const s = setup({ fetchForecast: vi.fn(async () => { throw abort; }) });
     await expect(run('live', s.deps)).rejects.toBe(abort);
-    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'aborted', rounds: 0, issues: 0, ms: 0 });
+    expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'aborted', rounds: 0, issues: 0, ms: 0, costUsd: 0 });
   });
 
   it('live, reviser returns another city: code pins draft.city on critique and output', async () => {
@@ -433,7 +433,7 @@ describe('reviewTrip', () => {
         card(draft, { status: 'checking', round: 1 }),
         card(draft, { status: 'unchecked', round: 1 }),
       ]);
-      expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'unchecked', rounds: 1, issues: 0, ms: 0 });
+      expect(s.log).toHaveBeenCalledWith({ mode: 'live', status: 'unchecked', rounds: 1, issues: 0, ms: 0, costUsd: 0 });
     });
 
     it('deadline hits mid-revise: unverified with the best version', async () => {
@@ -464,7 +464,7 @@ describe('reviewTrip', () => {
         throw timedOut();
       });
       expect(await run('shadow', s.deps)).toEqual([{ found: true, ...draft }]);
-      expect(s.log).toHaveBeenCalledWith({ mode: 'shadow', status: 'unchecked', rounds: 1, issues: 0, ms: 0 });
+      expect(s.log).toHaveBeenCalledWith({ mode: 'shadow', status: 'unchecked', rounds: 1, issues: 0, ms: 0, costUsd: 0 });
     });
 
     it('a Stop that lands after the deadline is still a Stop', async () => {
@@ -477,5 +477,28 @@ describe('reviewTrip', () => {
       });
       await expect(run('live', s.deps, draft, ctrl.signal)).rejects.toThrow('timed out');
     });
+  });
+});
+
+describe('reviewTrip cost', () => {
+  type Opts = { onCost?: (usd: number | null) => void };
+
+  // One line per review: the critic's Terra calls are the expensive part.
+  it('sums every critic and reviser call into the log line', async () => {
+    const critique = vi
+      .fn()
+      .mockImplementationOnce(async (_: unknown, o: Opts) => (o.onCost?.(0.002), fail('x')))
+      .mockImplementationOnce(async (_: unknown, o: Opts) => (o.onCost?.(0.003), pass));
+    const revise = vi.fn(async (_: unknown, o: Opts) => (o.onCost?.(0.0005), draftN(2)));
+    const s = setup({ critique, revise } as Partial<ReviewDeps>);
+    await run('live', s.deps);
+    expect(s.log.mock.calls[0][0].costUsd).toBeCloseTo(0.0055);
+  });
+
+  it('is null when a call ran on a model without a price', async () => {
+    const critique = vi.fn(async (_: unknown, o: Opts) => (o.onCost?.(null), pass));
+    const s = setup({ critique } as Partial<ReviewDeps>);
+    await run('shadow', s.deps);
+    expect(s.log.mock.calls[0][0].costUsd).toBeNull();
   });
 });

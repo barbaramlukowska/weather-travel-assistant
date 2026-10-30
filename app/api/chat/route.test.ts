@@ -160,6 +160,44 @@ describe('POST /api/chat — a tool call cut off by Stop', () => {
   });
 });
 
+describe('POST /api/chat — turn log', () => {
+  // Cost and TTFT are read from production logs, so a finished turn must
+  // leave exactly one parseable line.
+  it('logs one JSON line with the usage of a finished turn', async () => {
+    const { simulateReadableStream } = await import('ai');
+    doStream.mockImplementationOnce((async () => ({
+      stream: simulateReadableStream({
+        chunks: [
+          { type: 'text-start', id: 't1' },
+          { type: 'text-delta', id: 't1', delta: 'Sunny.' },
+          { type: 'text-end', id: 't1' },
+          {
+            type: 'finish',
+            finishReason: { unified: 'stop', raw: 'stop' },
+            usage: {
+              inputTokens: { total: 900, noCache: 100, cacheRead: 800, cacheWrite: 0 },
+              outputTokens: { total: 40, text: 10, reasoning: 30 },
+            },
+          },
+        ],
+      }),
+    })) as never);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const res = await post({ messages }, '10.0.1.9');
+    await res.text();
+
+    const lines = log.mock.calls.filter(([label]) => label === 'chat turn:');
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0][1])).toMatchObject({
+      status: 'done',
+      steps: 1,
+      tokens: { input: 900, cached: 800, output: 40, reasoning: 30 },
+      costUsd: null, // the mock model has no price
+    });
+  });
+});
+
 describe('POST /api/chat — Stop in the browser', () => {
   // Closing the request must reach the model, or it keeps generating (and
   // billing) a reply nobody reads.

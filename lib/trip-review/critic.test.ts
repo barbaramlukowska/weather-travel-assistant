@@ -6,7 +6,8 @@ import { criticApproves, critiqueTrip } from './critic';
 const { doGenerate } = vi.hoisted(() => ({ doGenerate: vi.fn() }));
 vi.mock('@/lib/model', async () => {
   const { MockLanguageModelV4 } = await import('ai/test');
-  const model = () => new MockLanguageModelV4({ doGenerate });
+  // A real model id, so the cost test finds a price.
+  const model = () => new MockLanguageModelV4({ modelId: 'gpt-5.6-terra', doGenerate });
   return { getCriticModel: model, getChatModel: model };
 });
 
@@ -46,6 +47,14 @@ describe('critiqueTrip', () => {
     const wire = { issues: [{ field: 'packingList', item: 'umbrella', problem: 'Dry week.' }], pass: false };
     doGenerate.mockResolvedValueOnce(reply(JSON.stringify(wire)));
     await expect(critiqueTrip(input)).resolves.toEqual(wire);
+  });
+
+  it('reports the cost of its call', async () => {
+    doGenerate.mockResolvedValueOnce(reply('{"issues":[],"pass":true}'));
+    const onCost = vi.fn();
+    await critiqueTrip(input, { onCost });
+    // 1 input × $2 + 1 output × $12, per 1M
+    expect(onCost).toHaveBeenCalledExactlyOnceWith(0.000014);
   });
 
   it('passes the abortSignal to the model', async () => {

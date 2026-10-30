@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "eval": "tsx --env-file=.env.local evals/run.ts",
     "eval:judge": "tsx --env-file=.env.local evals/judge-check.ts",
-    "eval:critic": "tsx --env-file=.env.local evals/critic-check.ts"
+    "eval:critic": "tsx --env-file=.env.local evals/critic-check.ts",
+    "devtools": "devtools"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.8",
@@ -25,6 +26,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@ai-sdk/devtools": "1.0.25",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

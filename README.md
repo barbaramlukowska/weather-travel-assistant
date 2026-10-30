@@ -112,11 +112,13 @@ and the judge is never the same model as the chat.
 ## Testing & quality
 
 ```bash
-pnpm test               # Vitest — component + unit tests (gate the CI pipeline)
-pnpm eval               # agent evals — 17 cases against a real LLM (run manually)
-pnpm eval -- --no-judge # same, deterministic assertions only (cheaper)
-pnpm eval:judge         # calibrate the LLM judge against hand-labelled fixtures
-pnpm lint               # eslint
+pnpm test                   # Vitest — component + unit tests (gate the CI pipeline)
+pnpm eval                   # agent evals — 29 cases against a real LLM (run manually)
+pnpm eval --no-judge        # same, deterministic assertions only (cheaper)
+pnpm eval --update-baseline # record turn time and cost of a full, all-green run
+pnpm eval:judge             # calibrate the LLM judge against hand-labelled fixtures
+pnpm eval:critic            # calibrate the trip-plan critic against 10 fixtures
+pnpm lint                   # eslint
 ```
 
 - **Component/unit tests** run in CI (GitHub Actions), ahead of the build step, so a red test blocks the pipeline. They are deliberately *not* part of `pnpm build` itself — Vercel runs that script in a production environment where the React test bundle is unavailable.
@@ -131,6 +133,41 @@ pnpm lint               # eslint
   9 hand-labelled fixtures (11 labels, 5 pass / 6 fail) and prints the result next to
   an always-pass/always-fail baseline, so a judge that answers the same way every
   time is visibly worse than a real one.
+- **Performance gate** — every eval run also prints p50/p95 turn time and the
+  agent's cost next to a committed baseline (`evals/perf-baseline.json`), and fails
+  when time grows past 1.3× or cost per turn past 1.15×. The thresholds come from
+  measured run-to-run noise (p95 ±11%, cost ±3%). The gate was tested by adding a
+  5-second delay to one tool: all 29 cases still passed, and the run went red on p95.
+  Only a full run on the baseline's model is compared; anything else just prints.
+
+## Observability
+
+Every chat turn writes one JSON line to the server log — numbers and tool names
+only, never prompts, replies or memory:
+
+```
+chat turn: {"status":"done","model":"gpt-5.6-luna","steps":3,"ttftMs":1388,"ms":5868,
+  "tokens":{"input":6830,"cached":6184,"output":182,"reasoning":24},"costUsd":0.00047128,
+  "tools":[{"name":"getForecast","ms":296},{"name":"planTrip","ms":1}]}
+```
+
+- **Built on AI SDK 7 lifecycle callbacks** (`onEnd`, `onAbort`): the SDK already
+  measures time to first token and the time of each tool call, so nothing is timed
+  by hand. Cost is tokens × a price table (`lib/pricing.ts`), with cached input and
+  reasoning tokens counted separately. A model without a price logs `null`, not
+  `0`, so a missing price never looks free. Turns stopped by the user are logged
+  too, because their finished steps were billed.
+- **What the numbers showed:** a trip-plan turn costs about $0.0005–0.0008, and
+  50–90% of its input is served from the provider's cache. One round of the
+  trip-plan critic costs about $0.006 — 12× the whole chat turn — and adds about
+  5 s. The critic logs its own cost (`trip review:`), and it ships switched off.
+- **Local deep-dive:** `AI_DEVTOOLS=1 pnpm dev` plus `pnpm devtools` opens the
+  [AI SDK DevTools](https://ai-sdk.dev/docs/ai-sdk-core/devtools) viewer on
+  `localhost:4983` with every step, prompt and tool call as a tree; the critic's
+  call nests under the chat step that ran it. It stores full prompts as plain
+  text in `.devtools/` (gitignored), so it is opt-in and absent from production builds.
+- **No hosted tracing yet** (Langfuse, OpenTelemetry): the log line adds no new
+  third party that sees user data.
 
 ## Security
 
@@ -158,11 +195,16 @@ lib/
   geocode.ts          # city → coordinates + canonical name (server tools and the browser)
   memory/             # preference memory: fixed-shape schema, formatter, resolver, localStorage store
   history/            # chat history: list, one key per chat, active chat, quota handling
+  trip-review/        # trip-plan critic: code checks, critic model, reviser, review loop (off by default)
   limits.ts           # request limits shared by the route and the browser
   rate-limit.ts       # per-IP sliding-window rate limiter
+  pricing.ts          # price table and token → USD cost
+  turn-log.ts         # one log line per chat turn: tokens, cost, time to first token, tool times
 components/chat/      # frame + history sidebar/drawer, chat session (useChat), per-tool cards (with tests)
 evals/                # agent behaviour + adversarial eval suite, plus the LLM judge
                       # (judge.ts calls the model; prompt/verdict/score logic is pure)
+                      # and the performance gate (perf.ts, perf-baseline.json)
 docs/THREAT-MODEL.md  # OWASP threat model & mitigations
+instrumentation.ts    # opt-in AI SDK DevTools for local development
 next.config.ts        # security response headers (CSP report-only, HSTS, …)
 ```

@@ -1,5 +1,6 @@
 import { Output, generateText } from 'ai';
 import { getChatModel } from '@/lib/model';
+import { costUsd } from '@/lib/pricing';
 import {
   REVISER_SYSTEM_PROMPT,
   buildRevisePrompt,
@@ -12,7 +13,7 @@ import { tripPlanSchema, type ReviewIssue, type TripDraft } from './schema';
 // critiqueTrip; a 2-item list fails tripPlanSchema.min(3) and throws.
 export async function reviseTrip(
   input: ReviewInput & { issues: ReviewIssue[] },
-  opts: { abortSignal?: AbortSignal } = {},
+  opts: { abortSignal?: AbortSignal; onCost?: (usd: number | null) => void } = {},
 ): Promise<TripDraft> {
   const { output } = await generateText({
     model: getChatModel(),
@@ -20,6 +21,7 @@ export async function reviseTrip(
     prompt: buildRevisePrompt(input),
     output: Output.object({ schema: tripPlanSchema }),
     abortSignal: opts.abortSignal,
+    onEnd: ({ model, totalUsage }) => opts.onCost?.(costUsd(model.modelId, totalUsage)),
   });
   return output;
 }
